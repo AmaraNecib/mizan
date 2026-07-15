@@ -16,6 +16,19 @@ Produce a decision-complete architecture and delivery map for Mizan: an open-sou
 
 <!-- No Wayfinder tickets have been resolved yet. -->
 
+## GitHub tracker
+
+- Map: https://github.com/AmaraNecib/mizan/issues/1
+- `01` Domain model and authorization snapshot: https://github.com/AmaraNecib/mizan/issues/10
+- `02` Source adapter interface: https://github.com/AmaraNecib/mizan/issues/3 (blocked by `01`)
+- `03` Authentication context boundary: https://github.com/AmaraNecib/mizan/issues/2 (blocked by `01`)
+- `04` Cache and revocation composition: https://github.com/AmaraNecib/mizan/issues/5 (blocked by `02`, `03`)
+- `05` Stateful, stateless, and hybrid resolution: https://github.com/AmaraNecib/mizan/issues/9 (blocked by `03`, `04`)
+- `06` Management and extension seams: https://github.com/AmaraNecib/mizan/issues/6 (blocked by `01`, `02`)
+- `07` Evaluation and explanation contract: https://github.com/AmaraNecib/mizan/issues/7 (blocked by `01`, `02`)
+- `08` Runtime packaging and integration shape: https://github.com/AmaraNecib/mizan/issues/8 (blocked by `02`, `06`)
+- `09` Reference project acceptance scenarios: https://github.com/AmaraNecib/mizan/issues/4 (blocked by `01`, `02`, `03`, `04`, `07`)
+
 ## Not yet specified
 
 - The exact cache invalidation and revocation model after the source and snapshot contracts are settled.
@@ -30,4 +43,3 @@ Produce a decision-complete architecture and delivery map for Mizan: an open-sou
 - A mandatory database schema, migration system, or ORM dependency.
 - A Mizan-owned Redis, memory, browser, or other cache service.
 - A core admin dashboard or framework-specific UI package as part of the decision-layer contract.
-
