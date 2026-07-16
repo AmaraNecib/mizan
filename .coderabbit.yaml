@@ -1,0 +1,32 @@
+# CodeRabbit Configuration
+# See https://coderabbit.ai/docs/config for full documentation
+
+reviews:
+  review_status: false
+  max_issues_severity: warning
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/target/**"
+    - "!**/.git/**"
+    - "!**/dist/**"
+  path_instructions:
+    - path: "packages/core/src/**/*.ts"
+      instructions: |
+        These are Mizan Core modules.
+        - Must have no runtime dependency on Bun, Node, ORM, database driver, React, Redis, or authentication provider.
+        - Must use bun:test for development but not as a published runtime dependency.
+        - Must export stable public entry points from src/index.ts.
+        - Must follow the runtime-neutral design principle: core is usable from any TypeScript runtime.
+    - path: "packages/memory/src/**/*.ts"
+      instructions: |
+        These are Mizan Memory Adapter modules.
+        - Must depend only on @mizan/core, not on any database, ORM, or external service.
+        - Must provide an in-memory adapter for authorization data.
+        - Must export public entry points from src/index.ts.
+  auto_review:
+    enabled: false
+  auto_merge:
+    enabled: false
+
+chat:
+  auto_reply: true
