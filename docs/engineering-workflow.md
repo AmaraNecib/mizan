@@ -4,6 +4,19 @@ This document defines the permanent engineering workflow for the Mizan project. 
 
 ---
 
+## Planning Skills
+
+Use the current planning skill names consistently:
+
+1. `wayfinder` resolves a large design space and keeps the architectural map coherent.
+2. `to-spec` synthesizes the resolved design into one implementation-ready specification issue.
+3. `to-tickets` breaks that specification into tracer-bullet implementation tickets with explicit blockers.
+4. `implement` works one ready-for-agent ticket at a time using the ticket's acceptance criteria.
+
+The specification is the source of architectural truth. The tickets are the executable work queue. Use this specification-and-ticket terminology consistently throughout the workflow.
+
+---
+
 ## Branch and Release Model
 
 Mizan uses a small two-branch integration model:
@@ -41,7 +54,15 @@ When a pull request targets `develop`, reference its issue with `Refs #23`. Clos
 ## Feature Lifecycle
 
 ```
-Issue (GitHub)
+Wayfinder map / design
+    ↓
+to-spec
+    ↓
+Implementation-ready specification
+    ↓
+to-tickets
+    ↓
+Ready-for-agent ticket (GitHub)
     ↓
 Architecture / ADR (if required)
     ↓
@@ -82,10 +103,12 @@ Close Issue (manually, or through the release PR into main)
 
 ### 1. Issue
 
-Every implementation starts from a GitHub Issue. The issue must reference:
-- The PRD it implements
+Every implementation starts from one ready-for-agent GitHub ticket. For a large design, the ticket must reference:
+- The implementation-ready specification produced by `to-spec`
 - The architecture document it conforms to
 - The ADRs that constrain it
+
+The ticket is created by `to-tickets` and must contain the end-to-end behavior, acceptance criteria, and genuine blocking tickets. Do not begin implementation from a broad specification when a tracer-bullet ticket exists.
 
 See `.github/ISSUE_TEMPLATE/feature.md` for the template.
 
@@ -179,7 +202,7 @@ After local verification passes but **before pushing**, the agent runs the
    - **Standards** — checks code against documented coding standards +
      Fowler smell baseline
    - **Spec** — checks if the implementation matches the originating
-     issue / PRD / spec
+     ticket and implementation-ready specification
 4. The skill aggregates findings into a single report.
 
 **Pass/Fail:**
