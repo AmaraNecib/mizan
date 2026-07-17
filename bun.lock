@@ -1,0 +1,53 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "mizan",
+      "devDependencies": {
+        "husky": "^9.1.7",
+        "typescript": "^5.7.3",
+      },
+    },
+    "packages/core": {
+      "name": "@mizan/core",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.7.3",
+      },
+      "peerDependencies": {
+        "typescript": ">=5.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
+    "packages/memory": {
+      "name": "@mizan/memory",
+      "version": "0.1.0",
+      "dependencies": {
+        "@mizan/core": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.3",
+      },
+      "peerDependencies": {
+        "typescript": ">=5.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
+  },
+  "trustedDependencies": [
+    "husky",
+  ],
+  "packages": {
+    "@mizan/core": ["@mizan/core@workspace:packages/core"],
+
+    "@mizan/memory": ["@mizan/memory@workspace:packages/memory"],
+
+    "husky": ["husky@9.1.7", "", { "bin": { "husky": "bin.js" } }, "sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+  }
+}

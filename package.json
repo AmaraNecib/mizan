@@ -1,0 +1,21 @@
+{
+  "name": "mizan",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter='@mizan/*' build",
+    "test": "bun run --filter='@mizan/*' test",
+    "typecheck": "bun run --filter='@mizan/*' typecheck",
+    "lint": "bun run --filter='@mizan/*' lint",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "typescript": "^5.7.3"
+  },
+  "trustedDependencies": [
+    "husky"
+  ]
+}
