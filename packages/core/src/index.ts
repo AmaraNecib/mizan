@@ -63,7 +63,7 @@ export interface AuthorizationResult {
 export interface AuthorizationFact {
   /** The permission key (e.g., "files.read", "admin.*", "*"). */
   readonly permission: string;
-  /** `true` = grant, `false` = denial. */
+  /** `"grant"` = permission granted, `"deny"` = permission denied. */
   readonly effect: "grant" | "deny";
   /**
    * Optional scope. An omitted scope means global applicability.

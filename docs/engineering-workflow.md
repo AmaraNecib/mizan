@@ -53,7 +53,7 @@ When a pull request targets `develop`, reference its issue with `Refs #23`. Clos
 
 ## Feature Lifecycle
 
-```
+```text
 Wayfinder map / design
     ↓
 to-spec
@@ -126,7 +126,7 @@ Do not silently diverge from the approved architecture.
 
 Before writing production code, create a design document:
 
-```
+```text
 .scratch/implementation/<issue-id>-design.md
 ```
 
@@ -191,11 +191,10 @@ After local verification passes but **before pushing**, the agent runs the
 
 **How it works:**
 
-1. The parent agent reads `.diwan/models.yml` to select a review-capable model
-   (e.g., `opencode-go/mimo-2.5` for review tasks).
+1. The parent agent select a review-capable model (e.g., `opencode-go/mimo-2.5` for review tasks).
 2. The parent invokes the builtin `code-review` skill with the fixed point being
    `develop` (or the merge-base of the feature branch):
-   ```
+   ```text
    git diff develop...HEAD
    ```
 3. The code-review skill spawns **two parallel sub-agents**:
@@ -284,7 +283,7 @@ After all review feedback is addressed and CI is green again, the PR is ready to
 
 Merge into `develop` using squash merge. The commit message should reference the issue:
 
-```
+```text
 23: foundation: fixed-version core and memory packages (closes #23)
 ```
 
@@ -354,7 +353,7 @@ If a hook fails, the commit or push is blocked. Fix the issue locally, then retr
 
 ## Review Policy
 
-```
+```text
 Local Verification (step 5)
     ↓
 Pre-Push Self-Review (step 5.5) — code-review skill, local agent review

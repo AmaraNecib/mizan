@@ -35,8 +35,6 @@ class MemoryStore {
   readonly permissions = new Map<string, AuthorizationFact[]>();
   readonly roles = new Map<string, RoleDefinition>();
   readonly assignments = new Map<string, RoleAssignment[]>();
-  readonly directGrants = new Map<string, AuthorizationFact[]>();
-  readonly directDenials = new Map<string, AuthorizationFact[]>();
 }
 
 // ─── Memory Adapter ────────────────────────────────────────────────────────
@@ -90,25 +88,20 @@ export class MemoryAdapter {
   /**
    * Resolve authorization facts from the memory store.
    *
-   * @param _context - Authorization context (unused in memory adapter).
+   * @param context - Authorization context used for principal-specific
+   *   role-derived grant resolution.
    * @returns A source outcome with all stored facts.
    */
-  async resolve(_context: { principalId?: string }): Promise<SourceOutcome> {
+  async resolve(context: { principalId?: string }): Promise<SourceOutcome> {
     const allFacts: AuthorizationFact[] = [];
 
     for (const facts of this.store.permissions.values()) {
       allFacts.push(...facts);
     }
-    for (const facts of this.store.directGrants.values()) {
-      allFacts.push(...facts);
-    }
-    for (const facts of this.store.directDenials.values()) {
-      allFacts.push(...facts);
-    }
 
     // Resolve role-derived grants
-    if (_context.principalId) {
-      const assigned = this.store.assignments.get(_context.principalId) ?? [];
+    if (context.principalId) {
+      const assigned = this.store.assignments.get(context.principalId) ?? [];
       for (const assignment of assigned) {
         const role = this.store.roles.get(assignment.roleName);
         if (role) {
