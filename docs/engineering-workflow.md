@@ -191,8 +191,8 @@ After local verification passes but **before pushing**, the agent runs the
 
 **How it works:**
 
-1. The parent agent select a review-capable model (e.g., `opencode-go/mimo-2.5` for review tasks).
-2. The parent invokes the builtin `code-review` skill with the fixed point being
+1. The parent agent selects a review-capable model (e.g., `opencode-go/mimo-2.5` for review tasks).
+2. The parent agent invokes the built-in `code-review` skill with the fixed point being
    `develop` (or the merge-base of the feature branch):
    ```text
    git diff develop...HEAD
