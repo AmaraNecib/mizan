@@ -84,7 +84,7 @@ GitHub Actions Verification
     ↓
 Fix CI (if necessary)
     ↓
-CodeRabbit Review (auto on PR create, manual @coderabbitai review on later commits)
+CodeRabbit Review (manual @coderabbitai review trigger; auto-review disabled in config)
     ↓
 Address Review Feedback
     ↓
@@ -256,7 +256,7 @@ Wait for all required CI checks to pass. If any check fails:
 
 ### 9. CodeRabbit Review
 
-CodeRabbit auto-reviews when the PR is first created. On subsequent commits, auto-review is disabled via config — trigger it manually.
+CodeRabbit auto-review is fully disabled in config. Trigger it manually on every review cycle.
 
 Only after CI is fully green:
 - Comment `@coderabbitai review` in the PR
