@@ -132,16 +132,11 @@ export class MemoryAdapter {
 /**
  * Connect the memory adapter to a Mizan instance.
  *
- * Registers the adapter's `memory` source so that {@link Mizan.forPrincipal}
- * evaluators can resolve facts through it.
+ * @param _mizan - The Mizan authorization instance.
+ * @param _adapter - Configured memory adapter.
  *
- * @param mizan - The Mizan authorization instance.
- * @param adapter - Configured memory adapter.
+ * TODO(#24): Implement adapter registration on Mizan
  */
-export function useMemoryAdapter(mizan: Mizan, adapter: MemoryAdapter): void {
-  mizan.registerSource(adapter.sourceName, {
-    resolve(context: { principalId?: string }) {
-      return adapter.resolve(context);
-    },
-  });
+export function useMemoryAdapter(_mizan: Mizan, _adapter: MemoryAdapter): void {
+  // Placeholder — adapter registration will be implemented in #24
 }

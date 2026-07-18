@@ -55,13 +55,11 @@ describe("@mizan/memory", () => {
     expect(outcome.facts[0]!.effect).toBe("deny");
   });
 
-  it("useMemoryAdapter registers the memory source on Mizan", () => {
+  it("useMemoryAdapter is a no-op placeholder", () => {
     const mizan = createMizan();
     const adapter = new MemoryAdapter();
+    // Should not throw
     expect(() => useMemoryAdapter(mizan, adapter)).not.toThrow();
-
-    const auth = mizan.forPrincipal("user-1");
-    expect(auth).toBeDefined();
   });
 
   it("MemoryAdapter can be constructed without config", () => {
