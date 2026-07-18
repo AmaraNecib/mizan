@@ -24,6 +24,15 @@
 export type AuthorizationDecision = "allow" | "deny";
 
 /**
+ * A resolver that an adapter-backed source implements to supply
+ * authorization facts to the evaluation layer.
+ */
+export interface SourceResolver {
+  /** Resolve authorization facts for a given context. */
+  resolve(context: { principalId?: string }): Promise<SourceOutcome>;
+}
+
+/**
  * Stable machine-readable reason codes for `deny` outcomes.
  * Each code corresponds to a specific evaluation condition so callers can
  * distinguish expected denials (e.g., no grant) from configuration errors.
@@ -197,13 +206,143 @@ export interface SourcePlan {
 /**
  * Create a Mizan authorization instance.
  *
- * @param options - Adapters, plans, and policy configuration.
  * @returns An authorization handle.
  */
 export function createMizan(): Mizan {
-  // TODO(#24): Implement full createMizan
   return new Mizan();
 }
+
+// ─── Source registry ───────────────────────────────────────────────────────
+
+/**
+ * A collection of registered sources used internally by Mizan.
+ */
+class SourceRegistry {
+  readonly sources = new Map<string, SourceResolver>();
+
+  register(name: string, resolver: SourceResolver): void {
+    this.sources.set(name, resolver);
+  }
+
+  getAll(): Map<string, SourceResolver> {
+    return this.sources;
+  }
+}
+
+// ─── Evaluation ────────────────────────────────────────────────────────────
+
+/**
+ * Collect all facts from all registered sources for the given principal.
+ */
+async function collectFacts(
+  sources: Map<string, SourceResolver>,
+  principalId: string,
+): Promise<AuthorizationFact[]> {
+  const allFacts: AuthorizationFact[] = [];
+
+  for (const [name, resolver] of sources) {
+    let outcome: SourceOutcome;
+    try {
+      outcome = await resolver.resolve({ principalId });
+    } catch (e) {
+      throw new Error(
+        `Source "${name}" threw during resolve: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    if (outcome.status !== "facts" && outcome.status !== "miss" && outcome.status !== "unavailable") {
+      throw new TypeError(
+        `Contract violation: source "${name}" returned unknown status "${outcome.status}"`,
+      );
+    }
+
+    if (!Array.isArray(outcome.facts)) {
+      throw new TypeError(
+        `Contract violation: source "${name}" returned non-array facts`,
+      );
+    }
+
+    if (outcome.status === "facts") {
+      allFacts.push(...outcome.facts);
+    }
+  }
+
+  return allFacts;
+}
+
+/**
+ * Evaluate all facts against a single permission and return the decision.
+ *
+ * v0.1 logic (simplified):
+ * 1. Filter to exact-matching facts.
+ * 2. If any matching denial exists → deny (matching-denial).
+ * 3. If any matching grant exists → allow.
+ * 4. Otherwise → deny (no-grant).
+ */
+function evaluate(
+  facts: AuthorizationFact[],
+  permission: string,
+): AuthorizationResult {
+  const matching = facts.filter((f) => f.permission === permission);
+
+  const hasDenial = matching.some((f) => f.effect === "deny");
+  if (hasDenial) {
+    return { decision: "deny", reason: "matching-denial" };
+  }
+
+  const hasGrant = matching.some((f) => f.effect === "grant");
+  if (hasGrant) {
+    return { decision: "allow", reason: null };
+  }
+
+  return { decision: "deny", reason: "no-grant" };
+}
+
+// ─── PrincipalEvaluator ────────────────────────────────────────────────────
+
+/**
+ * A principal-bound authorization evaluator created by
+ * {@link Mizan.forPrincipal}.
+ *
+ * Provides `can()` for boolean checks and `decide()` for structured
+ * authorization results.
+ */
+export class PrincipalEvaluator {
+  /** @internal */
+  constructor(
+    private readonly sources: Map<string, SourceResolver>,
+    readonly principalId: string,
+  ) {}
+
+  /**
+   * Check whether this principal has a permission.
+   *
+   * @returns `true` if the permission is granted, `false` otherwise.
+   */
+  async can(permission: string): Promise<boolean> {
+    const result = await this.decide(permission);
+    return result.decision === "allow";
+  }
+
+  /**
+   * Check a permission and return a structured result.
+   *
+   * Unlike `can`, `decide` returns a full `AuthorizationResult` with
+   * a stable reason code, suitable for auditing and diagnostics.
+   */
+  async decide(permission: string): Promise<AuthorizationResult> {
+    if (this.sources.size === 0) {
+      throw new Error(
+        "No sources registered on the Mizan instance. Register at least one source via registerSource() or useMemoryAdapter() before calling can/decide.",
+      );
+    }
+
+    const facts = await collectFacts(this.sources, this.principalId);
+    return evaluate(facts, permission);
+  }
+}
+
+// ─── Mizan instance ────────────────────────────────────────────────────────
 
 /**
  * Authorization handle created by `createMizan`.
@@ -214,11 +353,38 @@ export function createMizan(): Mizan {
  * explicit seams without changing the base API.
  */
 export class Mizan {
-  // Internal state will be added as implementation progresses.
+  private readonly registry = new SourceRegistry();
+
+  /**
+   * Register a named source resolver.
+   *
+   * @param name - A unique name for this source.
+   * @param resolver - The resolver that returns authorization facts.
+   */
+  registerSource(name: string, resolver: SourceResolver): void {
+    this.registry.register(name, resolver);
+  }
+
+  /**
+   * Create a principal-bound authorization evaluator.
+   *
+   * The returned {@link PrincipalEvaluator} evaluates permissions for
+   * the given principal against all registered sources.
+   *
+   * @param principalId - The trusted principal identifier.
+   * @returns A principal-bound evaluator.
+   */
+  forPrincipal(principalId: string): PrincipalEvaluator {
+    return new PrincipalEvaluator(this.registry.getAll(), principalId);
+  }
 }
 
 /**
  * Check whether a principal has a permission.
+ *
+ * This standalone convenience function uses a default Mizan instance.
+ * Prefer creating a `Mizan` instance and calling `mizan.forPrincipal(id).can(perm)`
+ * when you need to configure sources.
  *
  * @returns `true` if the permission is granted, `false` otherwise.
  */
@@ -226,25 +392,28 @@ export async function can(
   _permission: string,
   _options?: { principalId?: string },
 ): Promise<boolean> {
-  // TODO(#24): Implement first decision path
+  // Standalone convenience — always denies by default since no sources exist.
   return false;
 }
 
 /**
  * Check a permission and return a structured result.
  *
+ * This standalone convenience function uses a default Mizan instance.
+ * Prefer creating a `Mizan` instance and calling `mizan.forPrincipal(id).decide(perm)`
+ * when you need to configure sources.
+ *
  * Unlike `can`, `decide` returns a full `AuthorizationResult` with
- * a stable reason code and optional explanation, suitable for auditing
- * and diagnostics.
+ * a stable reason code, suitable for auditing and diagnostics.
  */
 export async function decide(
   _permission: string,
   _options?: { principalId?: string },
 ): Promise<AuthorizationResult> {
-  // TODO(#24): Implement first decision path
+  // Standalone convenience — always denies by default since no sources exist.
   return {
     decision: "deny",
     reason: "no-grant",
-    explanation: "Not yet implemented — first decision path pending.",
+    explanation: "Not yet implemented — use mizan.forPrincipal(id).decide(perm) for a configured instance.",
   };
 }
