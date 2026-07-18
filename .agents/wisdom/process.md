@@ -25,7 +25,7 @@ Do not merge until all three pass. Do not assume CodeRabbit auto-triggered — i
 
 ## Commit message format
 
-```
+```text
 <issue-id>: <short description> (closes #<issue>)
 ```
 

@@ -19,7 +19,7 @@ expect(auth.can("x")).rejects.toThrow(/error/i);
 When the spec says "malformed output is surfaced as a developer-facing error", test every malformation path:
 
 - Unknown status
-- Missing/empty facts array
+- Missing or non-array facts (empty array is valid — means no facts)
 - Null/undefined outcome
 - Non-array facts
 - Invalid fact entries (missing permission, unknown effect)
