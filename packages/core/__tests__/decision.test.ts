@@ -160,8 +160,8 @@ describe("PrincipalEvaluator.decide()", () => {
     mizan.registerSource("mem", emptySource());
     const auth = mizan.forPrincipal("user-1");
 
-    expect(async () => await auth.can("anything")).not.toThrow();
-    expect(async () => await auth.decide("anything")).not.toThrow();
+    await expect(auth.can("anything")).resolves.toBe(false);
+    await expect(auth.decide("anything")).resolves.toHaveProperty("decision", "deny");
   });
 });
 
@@ -186,6 +186,41 @@ describe("Configuration errors", () => {
     const auth = mizan.forPrincipal("user-1");
 
     expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("throws when registering a duplicate source name", () => {
+    const mizan = createMizan();
+    const resolver: SourceResolver = emptySource();
+    mizan.registerSource("dup", resolver);
+
+    expect(() => mizan.registerSource("dup", resolver)).toThrow(
+      /already registered/i,
+    );
+  });
+
+  it("throws when a source resolves with null outcome", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        // @ts-expect-error — intentionally null
+        return null;
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("throws when a source is unavailable", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("unavail", {
+      async resolve() {
+        return { status: "unavailable", facts: [] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(auth.can("x")).rejects.toThrow(/unavailable/i);
   });
 });
 

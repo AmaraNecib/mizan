@@ -221,6 +221,11 @@ class SourceRegistry {
   readonly sources = new Map<string, SourceResolver>();
 
   register(name: string, resolver: SourceResolver): void {
+    if (this.sources.has(name)) {
+      throw new Error(
+        `Source "${name}" is already registered. Use a different name or remove the existing source first.`,
+      );
+    }
     this.sources.set(name, resolver);
   }
 
@@ -250,6 +255,12 @@ async function collectFacts(
       );
     }
 
+    if (outcome === null || outcome === undefined) {
+      throw new TypeError(
+        `Contract violation: source "${name}" returned null or undefined outcome`,
+      );
+    }
+
     if (outcome.status !== "facts" && outcome.status !== "miss" && outcome.status !== "unavailable") {
       throw new TypeError(
         `Contract violation: source "${name}" returned unknown status "${outcome.status}"`,
@@ -259,6 +270,12 @@ async function collectFacts(
     if (!Array.isArray(outcome.facts)) {
       throw new TypeError(
         `Contract violation: source "${name}" returned non-array facts`,
+      );
+    }
+
+    if (outcome.status === "unavailable") {
+      throw new Error(
+        `Source "${name}" is unavailable. An unavailable source is treated as a contract violation — ensure the source is reachable or remove it from the plan.`,
       );
     }
 
