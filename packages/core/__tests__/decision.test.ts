@@ -172,7 +172,7 @@ describe("Configuration errors", () => {
     const mizan = createMizan();
     const auth = mizan.forPrincipal("user-1");
 
-    expect(auth.can("anything")).rejects.toThrow(/no sources registered/i);
+    await expect(auth.can("anything")).rejects.toThrow(/no sources registered/i);
   });
 
   it("throws when a source resolves with malformed status", async () => {
@@ -185,7 +185,7 @@ describe("Configuration errors", () => {
     });
     const auth = mizan.forPrincipal("user-1");
 
-    expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
   });
 
   it("throws when registering a duplicate source name", () => {
@@ -208,7 +208,7 @@ describe("Configuration errors", () => {
     });
     const auth = mizan.forPrincipal("user-1");
 
-    expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
   });
 
   it("throws when a source is unavailable", async () => {
@@ -220,7 +220,7 @@ describe("Configuration errors", () => {
     });
     const auth = mizan.forPrincipal("user-1");
 
-    expect(auth.can("x")).rejects.toThrow(/unavailable/i);
+    await expect(auth.can("x")).rejects.toThrow(/unavailable/i);
   });
 });
 
