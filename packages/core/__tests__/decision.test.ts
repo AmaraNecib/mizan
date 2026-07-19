@@ -3,6 +3,7 @@ import {
   createMizan,
   Mizan,
   PrincipalEvaluator,
+  matchesPermission,
   type SourceResolver,
   type AuthorizationFact,
 } from "../src/index.ts";
@@ -24,6 +25,252 @@ function emptySource(): SourceResolver {
     },
   };
 }
+
+// ─── matchesPermission() ───────────────────────────────────────────────────
+
+describe("matchesPermission()", () => {
+  it("exact match returns true", () => {
+    expect(matchesPermission("files.read", "files.read")).toBe(true);
+  });
+
+  it("different exact permission returns false", () => {
+    expect(matchesPermission("files.read", "files.write")).toBe(false);
+  });
+
+  it("global pattern matches everything", () => {
+    expect(matchesPermission("anything", "*")).toBe(true);
+    expect(matchesPermission("files.read", "*")).toBe(true);
+    expect(matchesPermission("admin.view", "*")).toBe(true);
+  });
+
+  it("namespace pattern matches permissions under that prefix", () => {
+    expect(matchesPermission("files.read", "files.*")).toBe(true);
+    expect(matchesPermission("files.write", "files.*")).toBe(true);
+    expect(matchesPermission("files.sub.delete", "files.*")).toBe(true);
+    expect(matchesPermission("files", "files.*")).toBe(true);
+  });
+
+  it("namespace pattern does not match unrelated permissions", () => {
+    expect(matchesPermission("admin.view", "files.*")).toBe(false);
+    expect(matchesPermission("firefiles.read", "files.*")).toBe(false);
+  });
+
+  it("namespace pattern enforces dot boundary (rejects prefix-like names)", () => {
+    // "filesX.read" starts with "files" but is outside the "files.*" namespace
+    expect(matchesPermission("filesX.read", "files.*")).toBe(false);
+  });
+
+  it("empty permission does not match non-global pattern", () => {
+    expect(matchesPermission("", "files.*")).toBe(false);
+  });
+});
+
+// ─── Pattern-based evaluation ─────────────────────────────────────────────
+
+describe("PrincipalEvaluator with patterns", () => {
+  it("global grant allows any permission", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", sourceWith({ permission: "*", effect: "grant" }));
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("anything")).toBe(true);
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(true);
+  });
+
+  it("namespace grant allows permissions under that namespace", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", sourceWith({ permission: "files.*", effect: "grant" }));
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("files.write")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(false);
+  });
+
+  it("namespace denial overrides specific exact grant", async () => {
+    const mizan = createMizan();
+    mizan.registerSource(
+      "mem",
+      sourceWith(
+        { permission: "files.read", effect: "grant" },
+        { permission: "files.*", effect: "deny" },
+      ),
+    );
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(false);
+  });
+
+  it("exact denial overrides namespace grant", async () => {
+    const mizan = createMizan();
+    mizan.registerSource(
+      "mem",
+      sourceWith(
+        { permission: "files.*", effect: "grant" },
+        { permission: "files.delete", effect: "deny" },
+      ),
+    );
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("files.delete")).toBe(false);
+  });
+
+  it("global denial overrides any grant", async () => {
+    const mizan = createMizan();
+    mizan.registerSource(
+      "mem",
+      sourceWith(
+        { permission: "*", effect: "deny" },
+        { permission: "files.read", effect: "grant" },
+      ),
+    );
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(false);
+    expect(await auth.can("anything")).toBe(false);
+  });
+
+  it("pattern does not make missing permission valid (deny-by-default)", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", sourceWith({ permission: "files.*", effect: "grant" }));
+    const auth = mizan.forPrincipal("user-1");
+
+    // Permission not under any matching pattern/namespace
+    expect(await auth.can("unknown")).toBe(false);
+  });
+
+  it("multiple namespace grants are additive", async () => {
+    const mizan = createMizan();
+    mizan.registerSource(
+      "mem",
+      sourceWith(
+        { permission: "files.*", effect: "grant" },
+        { permission: "admin.*", effect: "grant" },
+      ),
+    );
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(true);
+    expect(await auth.can("other.action")).toBe(false);
+  });
+
+  it("denial from one namespace does not affect another namespace", async () => {
+    const mizan = createMizan();
+    mizan.registerSource(
+      "mem",
+      sourceWith(
+        { permission: "files.*", effect: "grant" },
+        { permission: "admin.*", effect: "deny" },
+      ),
+    );
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(false);
+  });
+});
+
+// ─── Role-derived access integration ───────────────────────────────────────
+
+describe("Role-derived access", () => {
+  it("role-derived grants are additive with direct grants", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", {
+      async resolve(_context: { principalId?: string }) {
+        const roleFacts: AuthorizationFact[] = [
+          { permission: "files.read", effect: "grant" },
+          { permission: "files.write", effect: "grant" },
+        ];
+        const directFacts: AuthorizationFact[] = [
+          { permission: "admin.view", effect: "grant" },
+        ];
+        return { status: "facts", facts: [...roleFacts, ...directFacts], freshness: "fresh" };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("files.write")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(true);
+  });
+
+  it("direct denial overrides role-derived grant", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", {
+      async resolve(_context: { principalId?: string }) {
+        const roleFacts: AuthorizationFact[] = [
+          { permission: "files.read", effect: "grant" },
+        ];
+        const directFacts: AuthorizationFact[] = [
+          { permission: "files.read", effect: "deny" },
+        ];
+        return { status: "facts", facts: [...roleFacts, ...directFacts], freshness: "fresh" };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(false);
+  });
+
+  it("denying one permission does not remove unrelated permissions", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", {
+      async resolve(_context: { principalId?: string }) {
+        const roleFacts: AuthorizationFact[] = [
+          { permission: "files.read", effect: "grant" },
+          { permission: "files.write", effect: "grant" },
+        ];
+        const directFacts: AuthorizationFact[] = [
+          { permission: "files.read", effect: "deny" },
+        ];
+        return { status: "facts", facts: [...roleFacts, ...directFacts], freshness: "fresh" };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(false);
+    expect(await auth.can("files.write")).toBe(true);
+  });
+
+  it("role with namespace pattern grants specific permissions", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", {
+      async resolve(_context: { principalId?: string }) {
+        const roleFacts: AuthorizationFact[] = [
+          { permission: "files.*", effect: "grant" },
+        ];
+        return { status: "facts", facts: roleFacts, freshness: "fresh" };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("files.write")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(false);
+  });
+
+  it("multiple roles produce additive grants", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", {
+      async resolve(_context: { principalId?: string }) {
+        const roleAFacts: AuthorizationFact[] = [
+          { permission: "files.*", effect: "grant" },
+        ];
+        const roleBFacts: AuthorizationFact[] = [
+          { permission: "admin.view", effect: "grant" },
+        ];
+        return { status: "facts", facts: [...roleAFacts, ...roleBFacts], freshness: "fresh" };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    expect(await auth.can("files.read")).toBe(true);
+    expect(await auth.can("admin.view")).toBe(true);
+  });
+});
 
 // ─── PrincipalEvaluator: can() ─────────────────────────────────────────────
 

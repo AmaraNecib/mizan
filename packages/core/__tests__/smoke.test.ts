@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createMizan, can, decide, Mizan } from "../src/index.ts";
+import { createMizan, can, decide, Mizan, matchesPermission } from "../src/index.ts";
 
 describe("@mizan/core", () => {
   it("exports createMizan", () => {
@@ -30,5 +30,11 @@ describe("@mizan/core", () => {
     const mizan = new Mizan();
     expect(mizan).toBeDefined();
     expect(mizan.constructor.name).toBe("Mizan");
+  });
+
+  it("exports matchesPermission", () => {
+    expect(matchesPermission).toBeInstanceOf(Function);
+    expect(matchesPermission("a", "*")).toBe(true);
+    expect(matchesPermission("a", "b")).toBe(false);
   });
 });
