@@ -90,5 +90,9 @@ Run before reporting "ready for merge".
 
 1. Report to the user what failed and why
 2. Do not proceed past the failing check
-3. If the user says "skip it", note it and continue
-4. If the user says "fix it", fix it and re-run the check
+3. If the user explicitly says "skip it" after being informed of the risk,
+   note the waiver and continue.
+4. If the user says "fix it", fix it and re-run the check.
+
+**Mandatory gates (never skip):** typecheck, test, build, CI green,
+CodeRabbit inline-comment inspection. These must pass.

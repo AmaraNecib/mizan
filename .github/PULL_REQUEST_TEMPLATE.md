@@ -15,8 +15,9 @@
 
 ## Review evidence
 
-Review outputs are at:
+Review outputs are saved locally at:
 `.scratch/reviews/<issue-id>/<head-sha>-{debate,test-audit,code-review}.md`
+(Local provenance — not remote links.)
 
 A summary of findings has been posted as a PR comment.
 

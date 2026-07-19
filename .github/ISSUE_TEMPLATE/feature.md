@@ -27,14 +27,9 @@ List genuine blocking tickets. Use `#<num>` syntax.
 
 ## Review tier
 
-<!--
-Select the review tier for this change:
-- Lightweight: docs-only
-- Standard: code changes, CI, workflow, config
-- High-assurance: authorization logic, permissions, denial, security
--->
+<!-- Select one: Lightweight, Standard, High-assurance -->
 
-Tier: Standard
+Tier: <!-- Lightweight | Standard | High-assurance -->
 
 ## Verification
 
@@ -47,6 +42,7 @@ bun run build
 
 ## Review evidence
 
-After the PR is opened, review outputs are saved to:
+After the PR is opened, review outputs are saved locally at:
 `.scratch/reviews/<issue-id>/<head-sha>-{debate,test-audit,code-review}.md`
-A summary is posted as a PR comment.
+A summary of findings is posted as a PR comment (these local paths are
+provenance, not remote links).

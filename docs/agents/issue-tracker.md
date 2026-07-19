@@ -25,7 +25,7 @@ grilling tickets (`wayfinder:grilling` label). These are tracked as:
 
 Review outputs from debate, test-audit, and code-review are saved locally at:
 
-```
+```text
 .scratch/reviews/<issue-id>/<head-sha>-{debate,test-audit,code-review}.md
 ```
 

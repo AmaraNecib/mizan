@@ -232,7 +232,7 @@ push based on what the change touches:
 
 | Tier | Applies to | Required steps |
 |------|-----------|----------------|
-| **Lightweight** | Genuinely non-reviewable files only (.gitignore, .gitattributes, LICENSE, .scratch/) | Guard → Push |
+| **Lightweight** | Genuinely non-reviewable files only (.gitignore, .gitattributes, .coderabbit.yaml, LICENSE, .scratch/) | Guard → Push |
 | **Standard** | Code changes, CI, workflow, config, CodeRabbit config, release scripts | Guard → Code-review → Push |
 | **High-assurance** | Authorization decisions, permission evaluation, denial logic, revocation, security-sensitive changes | Guard → Debate → Test-audit → Code-review → CodeRabbit → Push |
 
@@ -567,7 +567,9 @@ A feature is complete when:
 - [ ] Feature branch is pushed
 - [ ] Pull Request exists in GitHub
 - [ ] GitHub Actions are green
-- [ ] CodeRabbit review has been triggered and completed (unless prevented by permissions)
-- [ ] CodeRabbit feedback has been addressed (if any)
+- [ ] CodeRabbit review has been triggered and completed (High-assurance only;
+      optional for Standard, skipped for Lightweight)
+- [ ] CodeRabbit feedback has been addressed (High-assurance only;
+      if any)
 - [ ] PR has been merged into `develop`
 - [ ] Issue has been closed

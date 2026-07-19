@@ -19,7 +19,8 @@ phase only. It does not push, open PRs, run code-review, or merge.
 
 ## What NOT to do
 
-- Do NOT run code-review. It happens at step 5.5 (orchestrated by feature-implement).
+- Do NOT run code-review. Code-review is step 5.5, owned by feature-implement,
+  and runs after debate and test-audit (not inside implement).
 - Do NOT push. Push is step 6 (orchestrated by feature-implement).
 - Do NOT report ready or merge.
 
