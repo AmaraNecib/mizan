@@ -68,9 +68,13 @@ Architecture / ADR (if required)
     ↓
 Design (.scratch/implementation/)
     ↓
-Implementation (implement skill: TDD + code-review)
+Implementation (implement skill: TDD)
     ↓
 Quality Check (skill-guided: codebase-design, diagnosing-bugs, domain-modeling, ...)
+    ↓
+Debate (adversarial review: critic + defender)
+    ↓
+Test Audit (3-agent test quality review)
     ↓
 Local Verification
     ↓
@@ -159,7 +163,7 @@ The agent selects skills based on what the change touches:
 | Unclear requirements or unknowns | `research` — investigate against primary sources |
 | Planning a large chunk of work | `wayfinder` — break into investigation tickets |
 
-These skills supplement the `code-review` already run by `implement`. The agent does **not** load all blindly — it picks the ones relevant to the issue.
+The agent does **not** load all blindly — it picks the ones relevant to the issue.
 
 **Why this exists:**
 - Catches design and logic problems before tests are written
@@ -220,6 +224,25 @@ After local verification passes but **before pushing**, the agent runs the
   can use a different model than the parent.
 - The `code-review` skill's Standards + Spec axes catch problems CodeRabbit might
   miss (spec drift, smell violations, missing tests).
+
+### 5.75 — Review Tiers
+
+Not every change needs the same review depth. Select the tier before the first
+push based on what the change touches:
+
+| Tier | Applies to | Required steps |
+|------|-----------|----------------|
+| **Lightweight** | Docs-only changes (.md, .gitignore, comments) | Guard → Push |
+| **Standard** | Code changes, CI, workflow, config, CodeRabbit config, release scripts | Guard → Code-review → Push |
+| **High-assurance** | Authorization decisions, permission evaluation, denial logic, revocation, security-sensitive changes | Guard → Debate → Test-audit → Code-review → CodeRabbit → Push |
+
+CodeRabbit is mandatory only for High-assurance work. For Standard work it is
+optional; the code-review skill provides sufficient coverage.
+
+The selected tier and the base commit SHA are recorded at the start of
+implementation and passed through all review steps. If only non-reviewable
+documentation changes after a review, the evidence remains valid. If any
+reviewable code changes, evidence is stale and must be regenerated.
 
 ### 6. Push Feature Branch
 
@@ -481,69 +504,54 @@ Even with green CI and clean CodeRabbit review, the agent MUST also consider:
 - Is the diff suspicious (unrelated file changes, large generated files, secrets, etc.)?
 - Does the PR description accurately reflect the changes?
 
-If **all of the above are clean** → ✅ **Merge** (proceed to merge command).
+#### Merge Policy
 
-If **any of the above raises a real concern** but Steps 1 + 2 pass → ⚠️ **Merge with flag** (see uncertainty fallback).
+The agent may merge **only when** all of these are true:
+1. The user explicitly says to merge (e.g., "merge it", "go ahead")
+2. CI is green
+3. CodeRabbit has no unresolved actionable comments (verified by inspecting
+   inline comments, not status alone)
+4. The agent finds no blocker in its own judgment
 
-### Narrow Workaround (Stale Review Only)
+If any of 2-4 is not met, the agent reports the issue to the user and does
+not merge. The agent never merges autonomously.
 
-The workaround is a **narrow tool** for one specific situation: CodeRabbit check is `pass` but its review doesn't reflect the latest commit.
+#### CodeRabbit Evidence Check (not status check)
 
-**When to apply:**
-- We are confident the code is correct
-- CodeRabbit check shows as passed but no fresh review exists (Condition 2 fails)
-- Goal: get a fresh review, NOT bypass a real concern
+The CodeRabbit status check (SUCCESS/FAIL) is not reliable. The agent
+must verify two things:
 
-**Steps:**
+1. **Fetch the review summary** — does it cover the latest reviewable commit?
+   (If the latest commit is docs-only, evidence may still be valid.)
+2. **Fetch all inline comments** —
+   `gh api repos/<owner>/<repo>/pulls/<num>/comments`
+   — are there unresolved actionable findings? Was the review rate-limited?
 
-1. Remove CodeRabbit's old review summary comments if they persist
-2. Make a small cosmetic commit (e.g., a comment, formatting, whitespace — no behavior change)
-3. Push and wait for CI to pass
-4. Re-trigger CodeRabbit with `gh pr comment <num> --body "@coderabbitai review"`
-5. Wait for the new review
-6. Re-apply the two-condition check
+If CodeRabbit is rate-limited or unavailable, report that clearly and require
+an explicit human decision. Do not pretend the review occurred.
 
-**When NOT to apply:**
-- CodeRabbit has unresolved findings → fix them, don't workaround
-- The agent has its own concerns (Step 3) → surface to human
-- The PR is in any other uncertain state → don't bypass, leave for human
+#### Reporting
 
-### Uncertainty Fallback — Merge with Flag
-
-When the agent is **uncertain** about merging (e.g., a finding is ambiguous, edge case not covered, but not a hard blocker):
-
-**Do NOT refuse to merge** if dependent PRs may be blocked. Instead:
-
-1. Add the `status:needs-investigation` label to the PR
-2. Merge anyway (the work is done, and downstream PRs may be waiting)
-3. Report clearly to the human:
-   > "I merged PR #X with `status:needs-investigation` because [reason]. Dependent PRs #Y, #Z continue to work. Please review the merged PR when convenient."
-
-The label persists on the merged PR and is searchable via `gh pr list --label status:needs-investigation`.
-
-### Merge Command
-
-When all three steps pass, the agent executes:
-
-```bash
-gh pr merge <num> --squash --subject "<issue-id>: <title> (closes #<issue>)"
-```
-
-**No `--delete-branch` flag** — feature branches are kept for reference.
-
-**Merge commit format:** `<issue-id>: <short description> (closes #<issue>)`
-
-Example: `23: foundation: fixed-version core and memory packages (closes #23)`
+When all gates pass, the agent reports to the user:
+- PR link
+- CI status
+- CodeRabbit evidence summary
+- Review evidence paths (`.scratch/reviews/<issue-id>/<head-sha>-*`)
+- Merge command for the human to run
 
 ### Why This Workflow Exists
 
-A solo developer cannot approve their own PR. Traditional branch protection (require 1 approval) blocks all merges. This workflow replaces the human-approval gate with an **automated, deterministic agent gate** that:
+A solo developer cannot approve their own PR. Traditional branch protection
+(require 1 approval) blocks all merges. This workflow replaces the
+human-approval gate with an **automated, deterministic agent gate** that:
 
 1. **CI** = "did the build pass?"
-2. **CodeRabbit two-condition check** = "is the review complete and clean?"
-3. **Agent judgment** = "is anything obviously wrong that the tools missed?"
+2. **CodeRabbit evidence** = "are there real findings or just a status?"
+3. **Review tiers** = "does this change need high-assurance scrutiny?"
+4. **Agent judgment** = "is anything obviously wrong that the tools missed?"
 
-The agent is accountable for following this gate. The human is accountable for the policy and for reviewing any `status:needs-investigation` PRs after the fact.
+The agent is accountable for running these gates and reporting the result.
+The human is accountable for the final merge decision.
 
 ---
 
