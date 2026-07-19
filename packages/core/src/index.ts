@@ -29,6 +29,10 @@ export type AuthorizationDecision = "allow" | "deny";
  * This mirrors the native {@link AbortSignal} available at runtime in
  * modern Node.js and Bun. We define it here rather than pulling in DOM
  * types so the core stays runtime-neutral.
+ *
+ * Cancellation is **not yet wired end-to-end** in v0.1. The type is
+ * reserved for a follow-up so source resolvers can opt in when the
+ * pipeline supports it. Callers currently cannot supply a signal.
  */
 export interface CancellationSignal {
   readonly aborted: boolean;
@@ -41,6 +45,7 @@ export interface CancellationSignal {
  * - `principalId` — The trusted principal identifier (always present during evaluation).
  * - `now` — The evaluation timestamp, so sources can apply temporal logic or record it.
  * - `signal` — Optional {@link CancellationSignal} for cancellation support.
+ *   Cancellation is reserved for a follow-up; callers cannot supply a signal in v0.1.
  */
 export interface ResolveContext {
   readonly principalId: string;
@@ -317,9 +322,13 @@ async function collectFacts(
     for (const entry of plan.sources) {
       const resolver = sources.get(entry.sourceName);
       if (!resolver) {
-        throw new Error(
-          `Source "${entry.sourceName}" referenced by plan "${planName}" was not found. Register the source before using the plan.`,
-        );
+        if (entry.required) {
+          throw new Error(
+            `Source "${entry.sourceName}" referenced by plan "${planName}" was not found. Register the source before using the plan.`,
+          );
+        }
+        // Optional missing source — skip silently
+        continue;
       }
       targetSources.set(entry.sourceName, resolver);
     }

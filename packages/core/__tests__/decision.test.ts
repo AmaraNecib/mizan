@@ -366,11 +366,11 @@ describe("Plan-scoped evaluation", () => {
     expect(result.reason).toBe("matching-denial");
   });
 
-  it("throws when plan references a non-existent source", async () => {
+  it("throws when plan references a non-existent required source", async () => {
     const mizan = createMizan();
     // Register a real source so the evaluator passes the "no sources" guard
     mizan.registerSource("real", emptySource());
-    // But the plan references a different source that doesn't exist
+    // But the plan references a different source that doesn't exist — required
     mizan.registerPlan("broken", {
       name: "broken",
       strategy: "merge",
@@ -379,6 +379,24 @@ describe("Plan-scoped evaluation", () => {
 
     const auth = mizan.forPrincipal("user-1", "broken");
     await expect(auth.can("anything")).rejects.toThrow(/source.*nonexistent.*not found/i);
+  });
+
+  it("skips missing optional source instead of throwing", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("primary", sourceWith({ permission: "files.read", effect: "grant" }));
+    // Plan references a missing source as optional
+    mizan.registerPlan("with-optional", {
+      name: "with-optional",
+      strategy: "merge",
+      sources: [
+        { sourceName: "primary", required: true },
+        { sourceName: "missing-optional", required: false },
+      ],
+    });
+
+    const auth = mizan.forPrincipal("user-1", "with-optional");
+    // Should not throw — missing optional source is skipped
+    await expect(auth.can("files.read")).resolves.toBe(true);
   });
 
   it("throws when plan name was never registered", async () => {
