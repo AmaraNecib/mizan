@@ -71,6 +71,8 @@ export type DenyReason =
   | "no-grant"
   | "matching-denial"
   | "expired"
+  | "not-yet-active"
+  | "outside-schedule"
   | "out-of-scope"
   | "guard-denied"
   | "source-unavailable"
@@ -123,15 +125,30 @@ export interface AuthorizationFact {
 /**
  * A recurring time window, evaluated against the current time in the
  * specified IANA time zone.
+ *
+ * At least one of `weeks` or `dates` must be provided. An empty array
+ * for both means no active time windows.
  */
-export interface RecurringSchedule {
+export type RecurringSchedule = {
+  /** IANA time zone identifier (e.g., "Europe/Berlin", "America/New_York"). */
+  readonly timezone: string;
+  /** Weekly windows (day-of-week + time ranges). */
+  readonly weeks: WeeklyWindow[];
+  /** Date-specific windows (calendar dates + time ranges). */
+  readonly dates?: DateWindow[];
+} | {
   /** IANA time zone identifier (e.g., "Europe/Berlin", "America/New_York"). */
   readonly timezone: string;
   /** Weekly windows (day-of-week + time ranges). */
   readonly weeks?: WeeklyWindow[];
   /** Date-specific windows (calendar dates + time ranges). */
-  readonly dates?: DateWindow[];
-}
+  readonly dates: DateWindow[];
+};
+
+/** Ordered list of days for computing next-day overnight windows. */
+const DAYS: DayOfWeek[] = [
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+];
 
 export type DayOfWeek =
   | "monday"
@@ -221,6 +238,20 @@ export interface SourcePlanEntry {
   readonly sourceName: string;
   readonly required: boolean;
   readonly onUnavailable?: UnavailablePolicy;
+}
+
+/**
+ * Optional parameters for `can()` and `decide()`.
+ */
+export interface EvaluateOptions {
+  /**
+   * Requested scope. Omitted means only unscoped (global) facts apply.
+   */
+  readonly scope?: string;
+  /**
+   * Evaluation timestamp. Defaults to current time when omitted.
+   */
+  readonly at?: Date;
 }
 
 export type CompositionStrategy = "fallback" | "merge" | "authoritative";
@@ -338,6 +369,7 @@ async function collectFacts(
   plans: Map<string, SourcePlan>,
   principalId: string,
   planName?: string,
+  at?: Date,
 ): Promise<AuthorizationFact[]> {
   let targetSources: Map<string, SourceResolver>;
 
@@ -367,7 +399,7 @@ async function collectFacts(
     targetSources = new Map(sources);
   }
 
-  const now = new Date();
+  const now = at ?? new Date();
   const allFacts: AuthorizationFact[] = [];
 
   for (const [name, resolver] of targetSources) {
@@ -421,6 +453,33 @@ async function collectFacts(
             `Contract violation: source "${name}" returned a fact with an unsupported effect "${fact.effect}"`,
           );
         }
+        if (fact.scope === null) {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a fact with a null scope. Use undefined for global applicability, or provide a non-empty scope string.`,
+          );
+        }
+        if (fact.scope !== undefined && fact.scope.length === 0) {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a fact with an empty string scope. Use undefined for global applicability, or provide a non-empty scope string.`,
+          );
+        }
+        // Validate startsAt/expiresAt are valid ISO 8601 when present.
+        if (fact.startsAt !== undefined) {
+          const s = new Date(fact.startsAt).getTime();
+          if (Number.isNaN(s)) {
+            throw new TypeError(
+              `Contract violation: source "${name}" returned a fact with an invalid startsAt "${fact.startsAt}"`,
+            );
+          }
+        }
+        if (fact.expiresAt !== undefined) {
+          const e = new Date(fact.expiresAt).getTime();
+          if (Number.isNaN(e)) {
+            throw new TypeError(
+              `Contract violation: source "${name}" returned a fact with an invalid expiresAt "${fact.expiresAt}"`,
+            );
+          }
+        }
         allFacts.push(fact);
       }
     }
@@ -430,28 +489,370 @@ async function collectFacts(
 }
 
 /**
+ * Check whether a fact matches the requested scope.
+ *
+ * - If the fact has no scope, it is global and matches any request.
+ * - If the fact has a scope, it matches only when the request has the same scope.
+ */
+function isInScope(fact: AuthorizationFact, requestedScope?: string): boolean {
+  if (fact.scope === undefined || fact.scope === null) {
+    // Global fact — matches any scope request.
+    return true;
+  }
+  // Scoped fact — matches only when the request asks for the same scope.
+  return fact.scope === requestedScope;
+}
+
+/**
+ * Result of checking a fact's temporal and schedule activity.
+ */
+type FactActivity =
+  | { readonly active: true }
+  | { readonly active: false; readonly reason: "expired" | "not-yet-active" };
+
+/**
+ * Parse a "HH:mm" string into total minutes from midnight.
+ */
+function timeToMinutes(t: string): number {
+  const parts = t.split(":").map(Number);
+  return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+}
+
+/**
+ * Check whether a time range with `start > end` is an overnight window
+ * (spans midnight into the next day).
+ *
+ * Uses `>` not `>=` so that equal start/end (e.g., "09:00"–"09:00") is
+ * treated as a normal zero-length window, not an overnight wrap.
+ */
+function isOvernightRange(start: string, end: string): boolean {
+  return timeToMinutes(start) > timeToMinutes(end);
+}
+
+/**
+ * Check whether the given time-of-day (in minutes from midnight) falls
+ * within a time range that belongs to the current day.
+ *
+ * - Normal (start <= end): start <= time < end
+ * - Overnight (start > end): only the evening portion (time >= start)
+ *   belongs to the listed day; the early-morning portion (time < end)
+ *   is handled by {@link isOvernightNextActive} on the next day.
+ */
+function isTimeInRangeSameDay(timeMinutes: number, start: string, end: string): boolean {
+  const s = timeToMinutes(start);
+  const e = timeToMinutes(end);
+  if (s <= e) {
+    return timeMinutes >= s && timeMinutes < e;
+  }
+  // Overnight: only the evening portion (>= start) belongs to the listed day.
+  return timeMinutes >= s && timeMinutes < 1440;
+}
+
+/**
+ * Full-range check (including overnight wrap) used when the current day
+ * is the next day after the listed day. This is only used internally by
+ * {@link isOvernightNextActive}.
+ */
+function isTimeInRangeNextDay(timeMinutes: number, end: string): boolean {
+  return timeMinutes < timeToMinutes(end);
+}
+
+/**
+ * Simple cache for Intl.DateTimeFormat instances keyed by locale+options.
+ * Avoids re-creating formatters per-fact during evaluation.
+ * Capped at 100 entries to prevent memory growth in long-running processes.
+ */
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+const CACHE_MAX_SIZE = 100;
+
+function getDateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}\x00${JSON.stringify(options)}`;
+  let fmt = dateTimeFormatCache.get(key);
+  if (!fmt) {
+    if (dateTimeFormatCache.size >= CACHE_MAX_SIZE) {
+      // Evict oldest entry (first key) to keep cache bounded
+      const firstKey = dateTimeFormatCache.keys().next().value;
+      if (firstKey !== undefined) {
+        dateTimeFormatCache.delete(firstKey);
+      }
+    }
+    fmt = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormatCache.set(key, fmt);
+  }
+  return fmt;
+}
+
+/**
+ * Get the day-of-week name in the given IANA timezone for a UTC date.
+ */
+function getWeekdayInTimezone(date: Date, timezone: string): DayOfWeek {
+  const formatter = getDateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "long",
+  });
+  return formatter.format(date).toLowerCase() as DayOfWeek;
+}
+
+/**
+ * Get the date string in "YYYY-MM-DD" format in the given IANA timezone.
+ */
+function getDateInTimezone(date: Date, timezone: string): string {
+  // Use toLocaleDateString with en-CA locale which produces YYYY-MM-DD.
+  // The cached formatter avoids repeated allocations.
+  const formatter = getDateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date);
+}
+
+/**
+ * Get the local time in the given IANA timezone as total minutes from midnight.
+ */
+function getTimeInTimezone(date: Date, timezone: string): number {
+  const formatter = getDateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return timeToMinutes(formatter.format(date));
+}
+
+/**
+ * Return the day after the given day.
+ */
+function nextDay(day: DayOfWeek): DayOfWeek {
+  const idx = DAYS.indexOf(day);
+  return DAYS[(idx + 1) % 7]!;
+}
+
+/**
+ * Return the date string (YYYY-MM-DD) for the day after the given date.
+ */
+function nextDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Check whether the current time (in minutes from midnight) falls within
+ * the overnight extension of any of the given time ranges.
+ *
+ * An overnight window (start > end) on a given day also covers the next
+ * day from midnight until the end time. This helper checks that condition.
+ */
+function isOvernightNextActive(
+  timeMinutes: number,
+  ranges: TimeRange[],
+): boolean {
+  for (const range of ranges) {
+    if (isOvernightRange(range.start, range.end) && isTimeInRangeNextDay(timeMinutes, range.end)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check whether a fact's recurring schedule is active at the given
+ * UTC date, by converting to the schedule's IANA timezone.
+ *
+ * - No schedule → always active (no constraint).
+ * - Empty schedule (no weeks, no dates) → never active.
+ * - Checks both weekly windows and date-specific windows.
+ * - Multiple windows are OR'd (any match = active).
+ * - Overnight windows (start > end) handled correctly.
+ *
+ * Known limitation: During DST transitions (spring-forward/fall-back),
+ * the flat "minutes from midnight" arithmetic may be off by one hour
+ * for overnight windows that span the transition. This affects only
+ * a few hours per year and is a known trade-off to avoid introducing
+ * an external timezone library.
+ */
+function isScheduleActive(
+  schedule: RecurringSchedule,
+  at: Date,
+): boolean {
+  const weekday = getWeekdayInTimezone(at, schedule.timezone);
+  const dateStr = getDateInTimezone(at, schedule.timezone);
+  const timeMinutes = getTimeInTimezone(at, schedule.timezone);
+
+  // Check weekly windows
+  for (const week of schedule.weeks ?? []) {
+    // Check on the listed day
+    if (week.day === weekday) {
+      for (const range of week.times) {
+        if (isTimeInRangeSameDay(timeMinutes, range.start, range.end)) {
+          return true;
+        }
+      }
+    }
+    // Check the next day for overnight windows
+    const dayAfter = nextDay(week.day);
+    if (dayAfter === weekday) {
+      if (isOvernightNextActive(timeMinutes, week.times)) {
+        return true;
+      }
+    }
+  }
+
+  // Check date windows
+  for (const dw of schedule.dates ?? []) {
+    // Check on the listed date
+    if (dw.date === dateStr) {
+      for (const range of dw.times) {
+        if (isTimeInRangeSameDay(timeMinutes, range.start, range.end)) {
+          return true;
+        }
+      }
+    }
+    // Check the next date for overnight windows
+    const dateAfter = nextDate(dw.date);
+    if (dateAfter === dateStr) {
+      if (isOvernightNextActive(timeMinutes, dw.times)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check whether a fact is temporally active at the given time.
+ *
+ * Uses a half-open interval where `startsAt` is inclusive and `expiresAt` is exclusive.
+ * - Missing `startsAt` → active immediately.
+ * - Missing `expiresAt` → never expires.
+ */
+function isTemporallyActive(
+  fact: AuthorizationFact,
+  at: Date,
+): FactActivity {
+  const time = at.getTime();
+
+  if (fact.startsAt !== undefined) {
+    const start = new Date(fact.startsAt).getTime();
+    if (Number.isNaN(start)) {
+      return { active: false, reason: "not-yet-active" };
+    }
+    if (time < start) {
+      return { active: false, reason: "not-yet-active" };
+    }
+  }
+
+  if (fact.expiresAt !== undefined) {
+    const end = new Date(fact.expiresAt).getTime();
+    if (Number.isNaN(end)) {
+      return { active: false, reason: "expired" };
+    }
+    if (time >= end) {
+      return { active: false, reason: "expired" };
+    }
+  }
+
+  return { active: true };
+}
+
+/**
  * Evaluate all facts against a single permission and return the decision.
  *
- * v0.1 logic:
+ * Logic:
  * 1. Filter to pattern-matching facts (exact, global `*`, or namespace `files.*`).
- * 2. If any matching denial exists → deny (matching-denial).
- * 3. If any matching grant exists → allow.
- * 4. Otherwise → deny (no-grant).
+ * 2. Evaluate each matching fact's scope, temporal, and schedule activity.
+ * 3. If any active denial exists → deny (matching-denial).
+ * 4. If any active grant exists → allow.
+ * 5. If matching facts exist but all are out-of-scope → deny (out-of-scope).
+ * 6. If matching facts exist but all are temporally inactive → deny (expired or not-yet-active).
+ * 7. Otherwise → deny (no-grant).
  */
 function evaluate(
   facts: AuthorizationFact[],
   permission: string,
+  options?: { scope?: string; at?: Date },
 ): AuthorizationResult {
   const matching = facts.filter((f) => matchesPermission(permission, f.permission));
+  if (matching.length === 0) {
+    return { decision: "deny", reason: "no-grant" };
+  }
 
-  const hasDenial = matching.some((f) => f.effect === "deny");
-  if (hasDenial) {
+  const requestedScope = options?.scope;
+  const at = options?.at ?? new Date();
+
+  // Separate facts by scope, temporal activity, schedule, and effect.
+  const activeGrants: AuthorizationFact[] = [];
+  const activeDenials: AuthorizationFact[] = [];
+  const expired: AuthorizationFact[] = [];
+  const notYetActive: AuthorizationFact[] = [];
+  const outsideSchedule: AuthorizationFact[] = [];
+  const outOfScope: AuthorizationFact[] = [];
+
+  for (const fact of matching) {
+    // Scope check first
+    if (!isInScope(fact, requestedScope)) {
+      outOfScope.push(fact);
+      continue;
+    }
+
+    // Temporal check
+    const temporal = isTemporallyActive(fact, at);
+    if (!temporal.active) {
+      if (temporal.reason === "expired") {
+        expired.push(fact);
+      } else {
+        notYetActive.push(fact);
+      }
+      continue;
+    }
+
+    // Schedule check
+    if (fact.schedule !== undefined) {
+      const scheduleActive = isScheduleActive(fact.schedule, at);
+      if (!scheduleActive) {
+        outsideSchedule.push(fact);
+        continue;
+      }
+    }
+
+    // Active fact — evaluate effect
+    if (fact.effect === "deny") {
+      activeDenials.push(fact);
+    } else {
+      activeGrants.push(fact);
+    }
+  }
+
+  if (activeDenials.length > 0) {
     return { decision: "deny", reason: "matching-denial" };
   }
 
-  const hasGrant = matching.some((f) => f.effect === "grant");
-  if (hasGrant) {
+  if (activeGrants.length > 0) {
     return { decision: "allow", reason: null };
+  }
+
+  // All matching facts were inactive — pick the most specific reason.
+  // Priority order: scope > absolute time > schedule > future start.
+  // This is a deliberate choice: scope is fundamental (you cannot access
+  // what isn't yours), then absolute expiry (a lapsed permission), then
+  // schedule mismatch (outside business hours), then future activation.
+  if (outOfScope.length > 0) {
+    return { decision: "deny", reason: "out-of-scope" };
+  }
+  if (expired.length > 0) {
+    return { decision: "deny", reason: "expired" };
+  }
+  if (outsideSchedule.length > 0) {
+    return { decision: "deny", reason: "outside-schedule" };
+  }
+  if (notYetActive.length > 0) {
+    return { decision: "deny", reason: "not-yet-active" };
   }
 
   return { decision: "deny", reason: "no-grant" };
@@ -478,10 +879,12 @@ export class PrincipalEvaluator {
   /**
    * Check whether this principal has a permission.
    *
+   * @param permission - The permission key to check.
+   * @param options - Optional scope and evaluation time.
    * @returns `true` if the permission is granted, `false` otherwise.
    */
-  async can(permission: string): Promise<boolean> {
-    const result = await this.decide(permission);
+  async can(permission: string, options?: EvaluateOptions): Promise<boolean> {
+    const result = await this.decide(permission, options);
     return result.decision === "allow";
   }
 
@@ -490,16 +893,20 @@ export class PrincipalEvaluator {
    *
    * Unlike `can`, `decide` returns a full `AuthorizationResult` with
    * a stable reason code, suitable for auditing and diagnostics.
+   *
+   * @param permission - The permission key to check.
+   * @param options - Optional scope and evaluation time.
    */
-  async decide(permission: string): Promise<AuthorizationResult> {
+  async decide(permission: string, options?: EvaluateOptions): Promise<AuthorizationResult> {
     if (this.sources.size === 0) {
       throw new Error(
         "No sources registered on the Mizan instance. Register at least one source via registerSource() or useMemoryAdapter() before calling can/decide.",
       );
     }
 
-    const facts = await collectFacts(this.sources, this.plans, this.principalId, this.planName);
-    return evaluate(facts, permission);
+    const at = options?.at ?? new Date();
+    const facts = await collectFacts(this.sources, this.plans, this.principalId, this.planName, at);
+    return evaluate(facts, permission, { ...options, at });
   }
 }
 
