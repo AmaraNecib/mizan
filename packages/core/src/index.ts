@@ -280,7 +280,24 @@ async function collectFacts(
     }
 
     if (outcome.status === "facts") {
-      allFacts.push(...outcome.facts);
+      for (const fact of outcome.facts) {
+        if (fact === null || fact === undefined) {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a null or undefined fact entry`,
+          );
+        }
+        if (typeof fact.permission !== "string" || fact.permission.length === 0) {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a fact with a missing or non-string permission`,
+          );
+        }
+        if (fact.effect !== "grant" && fact.effect !== "deny") {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a fact with an unsupported effect "${fact.effect}"`,
+          );
+        }
+        allFacts.push(fact);
+      }
     }
   }
 

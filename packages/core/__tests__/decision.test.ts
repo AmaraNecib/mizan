@@ -222,6 +222,42 @@ describe("Configuration errors", () => {
 
     await expect(auth.can("x")).rejects.toThrow(/unavailable/i);
   });
+
+  it("throws when a source returns a fact with null entry", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [null as unknown as AuthorizationFact] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("throws when a source returns a fact with missing permission", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [{ effect: "grant" } as AuthorizationFact] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("throws when a source returns a fact with unsupported effect", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [{ permission: "x", effect: "maybe" }] as AuthorizationFact[] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
 });
 
 // ─── Principal binding ─────────────────────────────────────────────────────
