@@ -19,7 +19,6 @@ gh repo view --json nameWithOwner --jq .nameWithOwner
 Run before every commit.
 
 ```
-[ ] git status — working tree clean?
 [ ] bun run typecheck — passes?
 [ ] bun run test — all tests pass?
 ```
