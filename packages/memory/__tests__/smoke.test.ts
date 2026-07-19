@@ -29,7 +29,7 @@ describe("@mizan/memory", () => {
 
   it("resolve returns fresh empty facts for empty adapter", async () => {
     const adapter = new MemoryAdapter();
-    const outcome = await adapter.resolve({ principalId: "user-1" });
+    const outcome = await adapter.resolve({ principalId: "user-1", now: new Date() });
     expect(outcome.status).toBe("facts");
     expect(outcome.facts).toEqual([]);
     expect(outcome.freshness).toBe("fresh");
@@ -39,7 +39,7 @@ describe("@mizan/memory", () => {
     const adapter = new MemoryAdapter({
       facts: [{ permission: "files.read", effect: "grant" }],
     });
-    const outcome = await adapter.resolve({ principalId: "user-1" });
+    const outcome = await adapter.resolve({ principalId: "user-1", now: new Date() });
     expect(outcome.status).toBe("facts");
     expect(outcome.facts).toHaveLength(1);
     expect(outcome.facts[0]!.permission).toBe("files.read");
@@ -49,7 +49,7 @@ describe("@mizan/memory", () => {
     const adapter = new MemoryAdapter();
     adapter.addFact({ permission: "admin.*", effect: "deny" });
 
-    const outcome = await adapter.resolve({ principalId: "user-1" });
+    const outcome = await adapter.resolve({ principalId: "user-1", now: new Date() });
     expect(outcome.facts).toHaveLength(1);
     expect(outcome.facts[0]!.permission).toBe("admin.*");
     expect(outcome.facts[0]!.effect).toBe("deny");
