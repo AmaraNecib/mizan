@@ -9,7 +9,7 @@ import {
   type SourceOutcome,
 } from "../src/index.ts";
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
+// ─── Test helpers ───────────────────────────────────────────────────────────
 
 function sourceWith(...facts: AuthorizationFact[]): SourceResolver {
   return {
