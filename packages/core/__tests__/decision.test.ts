@@ -6,13 +6,15 @@ import {
   matchesPermission,
   type SourceResolver,
   type AuthorizationFact,
+  type ResolveContext,
+  type SourceOutcome,
 } from "../src/index.ts";
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
+// ─── Test helpers ───────────────────────────────────────────────────────────
 
 function sourceWith(...facts: AuthorizationFact[]): SourceResolver {
   return {
-    async resolve() {
+    async resolve(_ctx: ResolveContext) {
       return { status: "facts", facts, freshness: "fresh" };
     },
   };
@@ -20,7 +22,7 @@ function sourceWith(...facts: AuthorizationFact[]): SourceResolver {
 
 function emptySource(): SourceResolver {
   return {
-    async resolve() {
+    async resolve(_ctx: ResolveContext) {
       return { status: "facts", facts: [], freshness: "fresh" };
     },
   };
@@ -530,5 +532,249 @@ describe("Mizan", () => {
   it("can be exported and instantiated", () => {
     const mizan = new Mizan();
     expect(mizan).toBeDefined();
+  });
+});
+
+// ─── Plan registration ────────────────────────────────────────────────────────
+
+describe("registerPlan()", () => {
+  it("registers a named plan", () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", emptySource());
+    mizan.registerPlan("standard", {
+      name: "standard",
+      strategy: "merge",
+      sources: [{ sourceName: "mem", required: true }],
+    });
+    // No throw = success
+  });
+
+  it("throws on duplicate plan name", () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", emptySource());
+    const plan: SourcePlan = {
+      name: "dup",
+      strategy: "merge",
+      sources: [{ sourceName: "mem", required: true }],
+    };
+    mizan.registerPlan("dup", plan);
+    expect(() => mizan.registerPlan("dup", plan)).toThrow(/already registered/i);
+  });
+});
+
+// ─── Plan-scoped evaluation ───────────────────────────────────────────────────
+
+describe("Plan-scoped evaluation", () => {
+  it("resolves facts from the plan's single source", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("facts", sourceWith({ permission: "files.read", effect: "grant" }));
+    mizan.registerPlan("main", {
+      name: "main",
+      strategy: "merge",
+      sources: [{ sourceName: "facts", required: true }],
+    });
+
+    const auth = mizan.forPrincipal("user-1", "main");
+    expect(await auth.can("files.read")).toBe(true);
+  });
+
+  it("resolves only sources in the plan, ignoring unregistered sources", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("included", sourceWith({ permission: "files.read", effect: "grant" }));
+    // Not registered to any plan, but still in the registry
+    mizan.registerSource("unused", sourceWith({ permission: "files.delete", effect: "grant" }));
+    mizan.registerPlan("subset", {
+      name: "subset",
+      strategy: "merge",
+      sources: [{ sourceName: "included", required: true }],
+    });
+
+    const auth = mizan.forPrincipal("user-1", "subset");
+    // "files.read" is in the plan's source
+    expect(await auth.can("files.read")).toBe(true);
+    // "files.delete" is NOT in the plan's source but IS registered globally
+    expect(await auth.can("files.delete")).toBe(false);
+  });
+
+  it("deny decision from plan-scoped evaluation matches all-source behavior", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("src", sourceWith({ permission: "files.read", effect: "deny" }));
+    mizan.registerPlan("main", {
+      name: "main",
+      strategy: "merge",
+      sources: [{ sourceName: "src", required: true }],
+    });
+
+    const auth = mizan.forPrincipal("user-1", "main");
+    expect(await auth.can("files.read")).toBe(false);
+
+    const result = await auth.decide("files.read");
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toBe("matching-denial");
+  });
+
+  it("throws when plan references a non-existent required source", async () => {
+    const mizan = createMizan();
+    // Register a real source so the evaluator passes the "no sources" guard
+    mizan.registerSource("real", emptySource());
+    // But the plan references a different source that doesn't exist — required
+    mizan.registerPlan("broken", {
+      name: "broken",
+      strategy: "merge",
+      sources: [{ sourceName: "nonexistent", required: true }],
+    });
+
+    const auth = mizan.forPrincipal("user-1", "broken");
+    await expect(auth.can("anything")).rejects.toThrow(/source.*nonexistent.*not found/i);
+  });
+
+  it("skips missing optional source instead of throwing", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("primary", sourceWith({ permission: "files.read", effect: "grant" }));
+    // Plan references a missing source as optional
+    mizan.registerPlan("with-optional", {
+      name: "with-optional",
+      strategy: "merge",
+      sources: [
+        { sourceName: "primary", required: true },
+        { sourceName: "missing-optional", required: false },
+      ],
+    });
+
+    const auth = mizan.forPrincipal("user-1", "with-optional");
+    // Should not throw — missing optional source is skipped
+    await expect(auth.can("files.read")).resolves.toBe(true);
+  });
+
+  it("throws when plan name was never registered", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", emptySource());
+    const auth = mizan.forPrincipal("user-1", "unknown-plan");
+    await expect(auth.can("x")).rejects.toThrow(/plan.*unknown-plan.*not found/i);
+  });
+});
+
+// ─── Resolve context ──────────────────────────────────────────────────────────
+
+describe("Resolve context", () => {
+  it("passes principalId, now, and optional signal to source resolver", async () => {
+    let capturedContext: ResolveContext | null = null;
+
+    const capturingSource: SourceResolver = {
+      async resolve(ctx: ResolveContext) {
+        capturedContext = ctx;
+        return { status: "facts", facts: [], freshness: "fresh" };
+      },
+    };
+
+    const mizan = createMizan();
+    mizan.registerSource("cap", capturingSource);
+    const auth = mizan.forPrincipal("user-99");
+    await auth.can("files.read");
+
+    expect(capturedContext).not.toBeNull();
+    expect(capturedContext!.principalId).toBe("user-99");
+    expect(capturedContext!.now).toBeInstanceOf(Date);
+    expect(isNaN(capturedContext!.now.getTime())).toBe(false);
+    // signal is optional
+  });
+});
+
+// ─── Custom source replacement ────────────────────────────────────────────────
+
+describe("Custom source replacement", () => {
+  it("custom source with same facts produces same decision as memory adapter", async () => {
+    const mizan1 = createMizan();
+    const memorySource: SourceResolver = {
+      async resolve(_ctx: ResolveContext): Promise<SourceOutcome> {
+        return {
+          status: "facts",
+          facts: [{ permission: "files.read", effect: "grant" }],
+          freshness: "fresh",
+        };
+      },
+    };
+    mizan1.registerSource("mem", memorySource);
+    const auth1 = mizan1.forPrincipal("user-1");
+
+    // Custom source providing identical facts
+    const mizan2 = createMizan();
+    const customSource: SourceResolver = {
+      async resolve(_ctx: ResolveContext): Promise<SourceOutcome> {
+        return {
+          status: "facts",
+          facts: [{ permission: "files.read", effect: "grant" }],
+          freshness: "fresh",
+        };
+      },
+    };
+    mizan2.registerSource("custom", customSource);
+    const auth2 = mizan2.forPrincipal("user-1");
+
+    expect(await auth1.can("files.read")).toBe(await auth2.can("files.read"));
+    expect(await auth1.can("files.write")).toBe(await auth2.can("files.write"));
+  });
+});
+
+// ─── Adapter provides facts, core decides ─────────────────────────────────────
+
+describe("Adapter is fact provider, core is decision maker", () => {
+  it("adapter returns facts, core evaluates and decides allow", async () => {
+    const adapter: SourceResolver = {
+      async resolve(_ctx: ResolveContext): Promise<SourceOutcome> {
+        return {
+          status: "facts" as const,
+          facts: [{ permission: "admin.*", effect: "grant" }],
+          freshness: "fresh",
+        };
+      },
+    };
+
+    const mizan = createMizan();
+    mizan.registerSource("adapter", adapter);
+    const auth = mizan.forPrincipal("user-1");
+
+    // Adapter returns facts, core decides based on them
+    expect(await auth.can("admin.*")).toBe(true);
+
+    const result = await auth.decide("admin.*");
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toBeNull();
+  });
+
+  it("adapter outcome does not contain a decision field", async () => {
+    const adapter: SourceResolver = {
+      async resolve(_ctx: ResolveContext): Promise<SourceOutcome> {
+        return {
+          status: "facts",
+          facts: [{ permission: "files.read", effect: "grant" }],
+          freshness: "fresh",
+        };
+      },
+    };
+
+    const outcome = await adapter.resolve({
+      principalId: "user-1",
+      now: new Date(),
+    });
+
+    expect("decision" in outcome).toBe(false);
+    expect(outcome.status).toBe("facts");
+    expect(outcome.facts).toHaveLength(1);
+    expect(outcome.facts[0]!.effect).toBe("grant");
+  });
+});
+
+// ─── No-plan (default all-source) still works ─────────────────────────────────
+
+describe("Default all-source resolution", () => {
+  it("forPrincipal without plan name resolves all registered sources", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("srcA", sourceWith({ permission: "perm.a", effect: "grant" }));
+    mizan.registerSource("srcB", sourceWith({ permission: "perm.b", effect: "grant" }));
+
+    const auth = mizan.forPrincipal("user-1");
+    expect(await auth.can("perm.a")).toBe(true);
+    expect(await auth.can("perm.b")).toBe(true);
   });
 });

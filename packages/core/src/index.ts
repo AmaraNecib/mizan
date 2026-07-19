@@ -24,12 +24,42 @@
 export type AuthorizationDecision = "allow" | "deny";
 
 /**
+ * Minimal AbortSignal interface for cancellation support.
+ *
+ * This mirrors the native {@link AbortSignal} available at runtime in
+ * modern Node.js and Bun. We define it here rather than pulling in DOM
+ * types so the core stays runtime-neutral.
+ *
+ * Cancellation is **not yet wired end-to-end** in v0.1. The type is
+ * reserved for a follow-up so source resolvers can opt in when the
+ * pipeline supports it. Callers currently cannot supply a signal.
+ */
+export interface CancellationSignal {
+  readonly aborted: boolean;
+  readonly reason?: unknown;
+}
+
+/**
+ * Context passed to a source resolver when resolving authorization facts.
+ *
+ * - `principalId` — The trusted principal identifier (always present during evaluation).
+ * - `now` — The evaluation timestamp, so sources can apply temporal logic or record it.
+ * - `signal` — Optional {@link CancellationSignal} for cancellation support.
+ *   Cancellation is reserved for a follow-up; callers cannot supply a signal in v0.1.
+ */
+export interface ResolveContext {
+  readonly principalId: string;
+  readonly now: Date;
+  readonly signal?: CancellationSignal;
+}
+
+/**
  * A resolver that an adapter-backed source implements to supply
  * authorization facts to the evaluation layer.
  */
 export interface SourceResolver {
   /** Resolve authorization facts for a given context. */
-  resolve(context: { principalId?: string }): Promise<SourceOutcome>;
+  resolve(context: ResolveContext): Promise<SourceOutcome>;
 }
 
 /**
@@ -263,23 +293,87 @@ class SourceRegistry {
   getAll(): Map<string, SourceResolver> {
     return this.sources;
   }
+
+  get(name: string): SourceResolver | undefined {
+    return this.sources.get(name);
+  }
+
+  has(name: string): boolean {
+    return this.sources.has(name);
+  }
+}
+
+// ─── Plan registry ─────────────────────────────────────────────────────────
+
+/**
+ * A collection of registered plans used internally by Mizan.
+ */
+class PlanRegistry {
+  readonly plans = new Map<string, SourcePlan>();
+
+  register(name: string, plan: SourcePlan): void {
+    if (this.plans.has(name)) {
+      throw new Error(
+        `Plan "${name}" is already registered. Use a different name or remove the existing plan first.`,
+      );
+    }
+    this.plans.set(name, plan);
+  }
+
+  get(name: string): SourcePlan | undefined {
+    return this.plans.get(name);
+  }
 }
 
 // ─── Evaluation ────────────────────────────────────────────────────────────
 
 /**
- * Collect all facts from all registered sources for the given principal.
+ * Collect facts from sources, optionally filtered to a named plan.
+ *
+ * When a `planName` is provided, only the sources referenced by that plan
+ * are resolved. Otherwise all registered sources are resolved.
  */
 async function collectFacts(
   sources: Map<string, SourceResolver>,
+  plans: Map<string, SourcePlan>,
   principalId: string,
+  planName?: string,
 ): Promise<AuthorizationFact[]> {
+  let targetSources: Map<string, SourceResolver>;
+
+  if (planName !== undefined) {
+    const plan = plans.get(planName);
+    if (!plan) {
+      throw new Error(
+        `Plan "${planName}" not found. Register the plan via registerPlan() before using it.`,
+      );
+    }
+
+    targetSources = new Map();
+    for (const entry of plan.sources) {
+      const resolver = sources.get(entry.sourceName);
+      if (!resolver) {
+        if (entry.required) {
+          throw new Error(
+            `Source "${entry.sourceName}" referenced by plan "${planName}" was not found. Register the source before using the plan.`,
+          );
+        }
+        // Optional missing source — skip silently
+        continue;
+      }
+      targetSources.set(entry.sourceName, resolver);
+    }
+  } else {
+    targetSources = new Map(sources);
+  }
+
+  const now = new Date();
   const allFacts: AuthorizationFact[] = [];
 
-  for (const [name, resolver] of sources) {
+  for (const [name, resolver] of targetSources) {
     let outcome: SourceOutcome;
     try {
-      outcome = await resolver.resolve({ principalId });
+      outcome = await resolver.resolve({ principalId, now });
     } catch (e) {
       throw new Error(
         `Source "${name}" threw during resolve: ${e instanceof Error ? e.message : String(e)}`,
@@ -376,7 +470,9 @@ export class PrincipalEvaluator {
   /** @internal */
   constructor(
     private readonly sources: Map<string, SourceResolver>,
+    private readonly plans: Map<string, SourcePlan>,
     readonly principalId: string,
+    private readonly planName?: string,
   ) {}
 
   /**
@@ -402,7 +498,7 @@ export class PrincipalEvaluator {
       );
     }
 
-    const facts = await collectFacts(this.sources, this.principalId);
+    const facts = await collectFacts(this.sources, this.plans, this.principalId, this.planName);
     return evaluate(facts, permission);
   }
 }
@@ -419,6 +515,7 @@ export class PrincipalEvaluator {
  */
 export class Mizan {
   private readonly registry = new SourceRegistry();
+  private readonly planRegistry = new PlanRegistry();
 
   /**
    * Register a named source resolver.
@@ -431,16 +528,38 @@ export class Mizan {
   }
 
   /**
+   * Register a named source plan.
+   *
+   * Plans define which sources are resolved during evaluation. When a plan
+   * name is provided to {@link forPrincipal}, only the sources referenced
+   * by that plan are consulted.
+   *
+   * @param name - A unique name for this plan.
+   * @param plan - The plan definition with source references.
+   */
+  registerPlan(name: string, plan: SourcePlan): void {
+    this.planRegistry.register(name, plan);
+  }
+
+  /**
    * Create a principal-bound authorization evaluator.
    *
    * The returned {@link PrincipalEvaluator} evaluates permissions for
-   * the given principal against all registered sources.
+   * the given principal. When a `planName` is provided, only the sources
+   * referenced by that plan are resolved. Otherwise all registered sources
+   * are consulted.
    *
    * @param principalId - The trusted principal identifier.
+   * @param planName - Optional plan name for scoped evaluation.
    * @returns A principal-bound evaluator.
    */
-  forPrincipal(principalId: string): PrincipalEvaluator {
-    return new PrincipalEvaluator(this.registry.getAll(), principalId);
+  forPrincipal(principalId: string, planName?: string): PrincipalEvaluator {
+    return new PrincipalEvaluator(
+      this.registry.getAll(),
+      this.planRegistry.plans,
+      principalId,
+      planName,
+    );
   }
 }
 
