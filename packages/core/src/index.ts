@@ -463,22 +463,16 @@ async function collectFacts(
             `Contract violation: source "${name}" returned a fact with an empty string scope. Use undefined for global applicability, or provide a non-empty scope string.`,
           );
         }
-        // Validate startsAt/expiresAt are valid ISO 8601 when present.
-        if (fact.startsAt !== undefined) {
-          const s = new Date(fact.startsAt).getTime();
-          if (Number.isNaN(s)) {
-            throw new TypeError(
-              `Contract violation: source "${name}" returned a fact with an invalid startsAt "${fact.startsAt}"`,
-            );
-          }
+        // Validate startsAt/expiresAt are strict ISO 8601 timestamps.
+        if (fact.startsAt !== undefined && !isStrictISODate(fact.startsAt)) {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a fact with an invalid startsAt "${fact.startsAt}". Expected ISO 8601 format (e.g., "2024-01-01T00:00:00Z").`,
+          );
         }
-        if (fact.expiresAt !== undefined) {
-          const e = new Date(fact.expiresAt).getTime();
-          if (Number.isNaN(e)) {
-            throw new TypeError(
-              `Contract violation: source "${name}" returned a fact with an invalid expiresAt "${fact.expiresAt}"`,
-            );
-          }
+        if (fact.expiresAt !== undefined && !isStrictISODate(fact.expiresAt)) {
+          throw new TypeError(
+            `Contract violation: source "${name}" returned a fact with an invalid expiresAt "${fact.expiresAt}". Expected ISO 8601 format (e.g., "2024-12-31T23:59:59Z").`,
+          );
         }
         allFacts.push(fact);
       }
@@ -501,6 +495,68 @@ function isInScope(fact: AuthorizationFact, requestedScope?: string): boolean {
   }
   // Scoped fact — matches only when the request asks for the same scope.
   return fact.scope === requestedScope;
+}
+
+/**
+ * Strict ISO 8601 timestamp validator.
+ *
+ * Accepts only full-date or full-date + full-time formats with optional
+ * timezone ("Z" or ±HH:MM). Rejects JavaScript-parseable but non-ISO
+ * inputs such as "January 1, 2026" or "12/25/2024".
+ *
+ * Pattern: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss[.sss][Z|±HH:MM]
+ */
+
+/**
+ * Regex matching strict ISO 8601 date/datetime formats:
+ *   YYYY-MM-DD
+ *   YYYY-MM-DDTHH:mm:ss
+ *   YYYY-MM-DDTHH:mm:ss.sss
+ *   With optional Z or ±HH:MM timezone
+ */
+const ISO_DATE_RE =
+  /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
+
+/** Days in each month for non-leap years. */
+const DAYS_IN_MONTH = [
+  31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+] as const;
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+/**
+ * Validate that a date string is strict ISO 8601 AND logically valid.
+ *
+ * Rejects:
+ * - Non-ISO formats like "January 1, 2026" or "12/25/2024"
+ * - Logically invalid dates like "2024-02-30" or "2024-13-01"
+ * - Uses regex for format + manual component checking — no new Date() parsing.
+ */
+function isStrictISODate(value: string): boolean {
+  const match = ISO_DATE_RE.exec(value);
+  if (!match) {
+    return false;
+  }
+  const year = Number.parseInt(match[1]!, 10);
+  const month = Number.parseInt(match[2]!, 10);
+  const day = Number.parseInt(match[3]!, 10);
+
+  // Month must be 01-12
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  // Day must be >= 1
+  if (day < 1) {
+    return false;
+  }
+  // Day must not exceed month's max days (accounting for leap year)
+  const maxDay = DAYS_IN_MONTH[month - 1]! + (month === 2 && isLeapYear(year) ? 1 : 0);
+  if (day > maxDay) {
+    return false;
+  }
+  return true;
 }
 
 /**

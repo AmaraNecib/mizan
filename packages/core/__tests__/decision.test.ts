@@ -544,6 +544,63 @@ describe("Configuration errors", () => {
     await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
   });
 
+  it("throws when a source returns a fact with JavaScript-parseable but non-ISO startsAt", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [{ permission: "x", effect: "grant", startsAt: "January 1, 2026" }] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("throws when a source returns a fact with American-format date as startsAt", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [{ permission: "x", effect: "grant", startsAt: "12/25/2024" }] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("throws when a source returns a fact with logically invalid ISO date (Feb 30)", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [{ permission: "x", effect: "grant", startsAt: "2024-02-30T00:00:00Z" }] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
+  it("accepts valid leap year date (Feb 29, 2024)", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("mem", sourceWith({ permission: "x", effect: "grant", startsAt: "2024-02-29T00:00:00Z" }));
+    const auth = mizan.forPrincipal("user-1");
+
+    // Should not throw — Feb 29, 2024 is a valid leap year date
+    await expect(auth.can("x")).resolves.toBe(true);
+  });
+
+  it("rejects Feb 29 in non-leap year (2023)", async () => {
+    const mizan = createMizan();
+    mizan.registerSource("bad", {
+      async resolve() {
+        return { status: "facts", facts: [{ permission: "x", effect: "grant", startsAt: "2023-02-29T00:00:00Z" }] };
+      },
+    });
+    const auth = mizan.forPrincipal("user-1");
+
+    await expect(auth.can("x")).rejects.toThrow(/contract violation/i);
+  });
+
   it("zero-length interval (startsAt === expiresAt) is never active", async () => {
     const mizan = createMizan();
     mizan.registerSource(
