@@ -201,6 +201,37 @@ export interface SourcePlan {
   readonly sources: SourcePlanEntry[];
 }
 
+// ─── Permission pattern matching ────────────────────────────────────────────
+
+/**
+ * Check whether a permission key matches a pattern.
+ *
+ * Supported patterns:
+ * - **Exact**: `"files.read"` matches only `"files.read"`.
+ * - **Global**: `"*"` matches any permission.
+ * - **Namespace**: `"files.*"` matches `"files.read"`, `"files.write"`,
+ *   `"files.sub.delete"`, etc.
+ *
+ * Patterns are deliberately limited to these three forms. Arbitrary glob
+ * or regular-expression semantics are not part of the core contract.
+ *
+ * @param permission - The concrete permission key to check (e.g., `"files.read"`).
+ * @param pattern - The pattern to match against (e.g., `"files.*"` or `"*"`).
+ * @returns `true` if the permission matches the pattern.
+ */
+export function matchesPermission(permission: string, pattern: string): boolean {
+  if (pattern === "*") {
+    return true;
+  }
+  if (pattern.endsWith(".*") && pattern.length > 2) {
+    // Remove only the "*" to keep the dot: "files.*" → prefix "files."
+    const prefix = pattern.slice(0, -1);
+    const bare = prefix.slice(0, -1);
+    return permission === bare || permission.startsWith(prefix);
+  }
+  return permission === pattern;
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────
 
 /**
@@ -307,8 +338,8 @@ async function collectFacts(
 /**
  * Evaluate all facts against a single permission and return the decision.
  *
- * v0.1 logic (simplified):
- * 1. Filter to exact-matching facts.
+ * v0.1 logic:
+ * 1. Filter to pattern-matching facts (exact, global `*`, or namespace `files.*`).
  * 2. If any matching denial exists → deny (matching-denial).
  * 3. If any matching grant exists → allow.
  * 4. Otherwise → deny (no-grant).
@@ -317,7 +348,7 @@ function evaluate(
   facts: AuthorizationFact[],
   permission: string,
 ): AuthorizationResult {
-  const matching = facts.filter((f) => f.permission === permission);
+  const matching = facts.filter((f) => matchesPermission(permission, f.permission));
 
   const hasDenial = matching.some((f) => f.effect === "deny");
   if (hasDenial) {
