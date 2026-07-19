@@ -1,15 +1,30 @@
 ---
 name: implement
-description: "Implement a piece of work based on a spec or set of tickets."
+description: "Implementation worker: TDD, tests, and commits. Loaded by feature-implement. Does not push, report ready, or merge. Hands control back to feature-implement for review gates."
 disable-model-invocation: true
 ---
 
-Implement the work described by the user in the spec or tickets.
+# Implement — TDD Worker
 
-Use /tdd where possible, at pre-agreed seams.
+This skill is called by `feature-implement` (Step 4). It handles the coding
+phase only. It does not push, open PRs, run code-review, or merge.
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+## What to do
 
-Once done, use /code-review to review the work.
+1. Use TDD at pre-agreed seams (red → green per slice).
+2. Run typechecking after each slice.
+3. Run the single test file after each slice.
+4. Run the full test suite periodically.
+5. Commit intermediate work as you go.
 
-Commit your work to the current branch.
+## What NOT to do
+
+- Do NOT run code-review. Code-review is step 5.5, owned by feature-implement,
+  and runs after debate and test-audit (not inside implement).
+- Do NOT push. Push is step 6 (orchestrated by feature-implement).
+- Do NOT report ready or merge.
+
+## When done
+
+Stop and let `feature-implement` proceed to the next step (quality check →
+debate → test-audit → code-review → guard → push).
