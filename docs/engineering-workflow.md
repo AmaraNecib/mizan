@@ -232,7 +232,7 @@ push based on what the change touches:
 
 | Tier | Applies to | Required steps |
 |------|-----------|----------------|
-| **Lightweight** | Docs-only changes (.md, .gitignore, comments) | Guard → Push |
+| **Lightweight** | Genuinely non-reviewable files only (.gitignore, .gitattributes, LICENSE, .scratch/) | Guard → Push |
 | **Standard** | Code changes, CI, workflow, config, CodeRabbit config, release scripts | Guard → Code-review → Push |
 | **High-assurance** | Authorization decisions, permission evaluation, denial logic, revocation, security-sensitive changes | Guard → Debate → Test-audit → Code-review → CodeRabbit → Push |
 
@@ -240,9 +240,9 @@ CodeRabbit is mandatory only for High-assurance work. For Standard work it is
 optional; the code-review skill provides sufficient coverage.
 
 The selected tier and the base commit SHA are recorded at the start of
-implementation and passed through all review steps. If only non-reviewable
-documentation changes after a review, the evidence remains valid. If any
-reviewable code changes, evidence is stale and must be regenerated.
+implementation and passed through all review steps. Markdown files under `docs/`, `.agents/`, and `.github/` are reviewable.
+Only `.gitignore`, `.gitattributes`, `LICENSE`, and `.scratch/` files are
+non-reviewable. If any reviewable file changed, evidence is stale.
 
 ### 6. Push Feature Branch
 
@@ -524,8 +524,10 @@ must verify two things:
 1. **Fetch the review summary** — does it cover the latest reviewable commit?
    (If the latest commit is docs-only, evidence may still be valid.)
 2. **Fetch all inline comments** —
-   `gh api repos/<owner>/<repo>/pulls/<num>/comments`
-   — are there unresolved actionable findings? Was the review rate-limited?
+   `gh api --paginate repos/<owner>/<repo>/pulls/<num>/comments`
+   Do not truncate bodies.
+   — Are there unresolved actionable findings?
+   — Was the review rate-limited or unavailable?
 
 If CodeRabbit is rate-limited or unavailable, report that clearly and require
 an explicit human decision. Do not pretend the review occurred.

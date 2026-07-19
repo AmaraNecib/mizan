@@ -2,9 +2,15 @@
 
 This project uses a skills-and-workflow system for AI coding agents.
 
-## Entry points
+## Entry point
 
-- `.agents/skills/` — task-specific skills (feature-implement, implement, debate, guard, etc.)
+All feature implementation work starts at **`feature-implement`** (`.agents/skills/feature-implement/SKILL.md`). It orchestrates the full lifecycle: design → implement → review → PR → report.
+
+Do not bypass `feature-implement` for code-changing work. Read it first.
+
+## Supporting skills
+
+- `.agents/skills/` — task-specific skills (implement, debate, guard, code-review, etc.)
 - `docs/engineering-workflow.md` — the full development lifecycle
 - `docs/agents/issue-tracker.md` — issue tracker configuration
 - `docs/agents/triage-labels.md` — label vocabulary
@@ -13,6 +19,5 @@ This project uses a skills-and-workflow system for AI coding agents.
 
 ## For agents
 
-Read the engineering workflow first. It defines the lifecycle from issue to merge.
-Skills are loaded as needed at each step. Configuration files under `docs/agents/`
-are written by `setup-matt-pocock-skills` and consumed by workflow skills.
+Start by reading `feature-implement`. It will load the engineering workflow
+and delegate each step to the right skill.

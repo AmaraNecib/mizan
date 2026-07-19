@@ -1,57 +1,63 @@
 ---
 name: guard
-description: "Run pre-flight checks before committing, pushing, or reporting done. Tier-aware: lightweight checks skip debate/code-review requirements. Evidence-SHA-aware: verifies review evidence matches current HEAD. Use automatically via feature-implement before each key action."
+description: "Single source of truth for pre-flight checks: pre-commit, pre-push, pre-report. Tier-aware. Evidence-SHA-aware. Called by feature-implement. Do not bypass."
 ---
 
 # Guard — Pre-flight Checks
 
-Run these checks before key actions. The checks depend on the review tier
-chosen for this change. If any check fails, stop and report.
+Three phases. Each has explicit, checkable completion criteria.
+If any check fails, stop and report. Do not proceed.
 
 ## Derive repository
 
-Use `gh repo view --json nameWithOwner --jq .nameWithOwner` to get the
-current repository. Do not hard-code the repo path.
-
-## Before commit
-
-```
-[ ] git status — are there unstaged changes?
-[ ] bun run typecheck — does it pass?
-[ ] bun run test — do all tests pass?
+```bash
+gh repo view --json nameWithOwner --jq .nameWithOwner
 ```
 
-## Before push
+## Phase 1 — Pre-commit
 
-### Common checks (all tiers)
+Run before every commit.
+
 ```
 [ ] git status — working tree clean?
 [ ] bun run typecheck — passes?
 [ ] bun run test — all tests pass?
-[ ] bun run build — compiles?
 ```
 
-### Evidence staleness check
+## Phase 2 — Pre-push
+
+Run before pushing and opening a PR.
+
+```
+[ ] bun run typecheck — passes?
+[ ] bun run test — all tests pass?
+[ ] bun run build — compiles?
+[ ] git status — working tree clean?
+```
+
+### Review evidence checks
 
 For each evidence file `.scratch/reviews/<issue-id>/<sha>-*.md`:
 - Extract the SHA from the filename
 - Compare to current HEAD (`git rev-parse HEAD`)
 - If they match → evidence is valid for the current code
-- If they differ → inspect what changed:
-  - `git diff --name-only <evidence-sha> HEAD` — list changed files
-  - If only non-reviewable files (.md, .gitignore, .gitattributes, README,
-    .scratch/) → evidence remains valid (docs-only exception)
-  - If any reviewable file changed → evidence is STALE, must regenerate
+- If they differ → inspect `git diff --name-only <evidence-sha> HEAD`:
+  - If any reviewable file changed (any file in packages/, .github/workflows/,
+    .agents/skills/, docs/engineering-workflow.md, etc.) → evidence is STALE,
+    must regenerate
+  - If only trivially non-reviewable files changed (.gitignore, .gitattributes,
+    .scratch/, LICENSE) → evidence remains valid
 
-### Tier-specific checks
+**All Markdown files under `docs/`, `.agents/`, and `.github/` are reviewable.**
+Only truly non-reviewable files (.gitignore, .gitattributes, LICENSE, scratch)
+get the docs-only exemption.
 
-**Lightweight** (docs-only):
-```
-[ ] No reviewable code changed — confirm with git diff --name-only
-```
+### Tier-specific requirements
+
+**Lightweight** (genuinely non-reviewable files only):
 → Skip debate, test-audit, and code-review checks.
 
-**Standard** (code, CI, config):
+**Standard** (code, CI, workflow, config):
 ```
 [ ] Code-review evidence exists and is not stale
 ```
@@ -63,14 +69,16 @@ For each evidence file `.scratch/reviews/<issue-id>/<sha>-*.md`:
 [ ] Code-review evidence exists and is not stale
 ```
 
-## Before reporting "ready for merge"
+## Phase 3 — Pre-report
+
+Run before reporting "ready for merge".
 
 ```
 [ ] CI — all checks green on GitHub?
-[ ] CodeRabbit evidence check (High-assurance only):
-    1. Fetch review summary — does it cover the latest reviewable commit?
-    2. Fetch inline comments — any unresolved actionable findings?
-    3. Was the review rate-limited or unavailable?
+[ ] Inline comments — fetched with --paginate, none truncated:
+    gh api --paginate repos/<owner>/<repo>/pulls/<num>/comments
+    — are there unresolved actionable findings?
+    — was the review rate-limited or unavailable?
     If rate-limited/unavailable: report clearly, require human decision.
     SUCCESS status alone is insufficient.
 [ ] PR description — accurate and complete?
