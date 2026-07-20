@@ -466,9 +466,13 @@ async function renderTable(): Promise<void> {
 
   for (const car of cars) {
     const tr = document.createElement("tr");
+    tr.dataset.carId = String(car.id);
     appendTd(tr, String(car.id));
     appendTd(tr, car.make);
-    appendTd(tr, car.model);
+    const modelTd = document.createElement("td");
+    modelTd.className = "model-cell";
+    modelTd.textContent = car.model;
+    tr.appendChild(modelTd);
 
     const actionsTd = document.createElement("td");
     actionsTd.className = "actions-cell";
@@ -480,13 +484,7 @@ async function renderTable(): Promise<void> {
     );
     addActionBtn(actionsTd, "Update", updateResult, () =>
       attemptAction("cars.update", () => {
-        const newModel = prompt(`New model for ${car.make} ${car.model}:`, car.model);
-        if (newModel && newModel.trim()) {
-          car.model = newModel.trim();
-          showFeedback(`Car #${car.id} updated`, "success");
-          saveState();
-          renderTable();
-        }
+        startInlineEdit(car, modelTd);
       }),
     );
     addActionBtn(actionsTd, "Delete", deleteResult, () =>
@@ -757,17 +755,76 @@ function setupScheduleControls(): void {
   });
 }
 
-// ─── Create car handler ────────────────────────────────────────────────────
+// ─── Inline create form ────────────────────────────────────────────────────
 
-async function onCreateCar(): Promise<void> {
-  const make = prompt("Enter car make:");
-  if (!make || make.trim() === "") return;
-  const model = prompt("Enter car model:");
-  if (!model || model.trim() === "") return;
-  await attemptAction("cars.create", () => {
-    cars.push({ id: nextCarId++, make: make.trim(), model: model.trim() });
-    saveState();
+function showCreateForm(): void {
+  byId("create-form").hidden = false;
+  byId<HTMLInputElement>("create-make").value = "";
+  byId<HTMLInputElement>("create-model").value = "";
+  byId<HTMLInputElement>("create-make").focus();
+}
+
+function hideCreateForm(): void {
+  byId("create-form").hidden = true;
+}
+
+function setupCreateForm(): void {
+  byId<HTMLButtonElement>("create-car-btn").addEventListener("click", showCreateForm);
+
+  byId<HTMLButtonElement>("create-save").addEventListener("click", async () => {
+    const make = byId<HTMLInputElement>("create-make").value.trim();
+    const model = byId<HTMLInputElement>("create-model").value.trim();
+    if (!make || !model) return;
+    hideCreateForm();
+    await attemptAction("cars.create", () => {
+      cars.push({ id: nextCarId++, make, model });
+      saveState();
+    });
   });
+
+  byId<HTMLButtonElement>("create-cancel").addEventListener("click", hideCreateForm);
+
+  // Enter in model field triggers Save.
+  byId<HTMLInputElement>("create-model").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") byId<HTMLButtonElement>("create-save").click();
+    if (e.key === "Escape") hideCreateForm();
+  });
+  byId<HTMLInputElement>("create-make").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideCreateForm();
+  });
+}
+
+// ─── Inline edit (per-row model rename) ────────────────────────────────────
+
+function startInlineEdit(car: Car, modelTd: HTMLTableCellElement): void {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "inline-edit";
+  input.value = car.model;
+  input.setAttribute("aria-label", "New model name");
+
+  const finish = (save: boolean) => {
+    const val = input.value.trim();
+    if (save && val && val !== car.model) {
+      car.model = val;
+      showFeedback(`Car #${car.id} updated`, "success");
+      saveState();
+      renderTable();
+    } else {
+      modelTd.textContent = car.model;
+    }
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
+  });
+  input.addEventListener("blur", () => finish(true));
+
+  modelTd.textContent = "";
+  modelTd.appendChild(input);
+  input.focus();
+  input.select();
 }
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────
@@ -792,7 +849,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  byId<HTMLButtonElement>("create-car-btn").addEventListener("click", onCreateCar);
+  setupCreateForm();
 
   byId<HTMLButtonElement>("reset-demo-btn").addEventListener("click", () => {
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }

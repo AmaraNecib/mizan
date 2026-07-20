@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- ═══ Header ═══ -->
     <header class="ledger-header">
       <div class="header-brand">
         <h1>Authorization Decision Ledger</h1>
@@ -18,167 +17,177 @@
       </div>
     </header>
 
-    <!-- ═══ Current decision banner ═══ -->
-    <div id="current-decision" class="decision-banner" aria-live="polite" role="status">
-      <span class="decision-actor-label">—</span>
-      <span class="decision-verb">—</span>
-      <span class="decision-outcome">—</span>
-      <span class="decision-reason"></span>
-    </div>
+    <div class="layout">
+      <!-- ═══ Left sidebar ═══ -->
+      <aside class="sidebar">
 
-    <!-- ═══ Controls ═══ -->
-    <section class="controls-bar" aria-label="Controls">
-      <div class="control-group">
-        <span class="control-label">Acting principal</span>
-        <div class="segmented" role="radiogroup" aria-label="Switch principal">
-          <button class="segmented-btn" data-principal="super-admin" role="radio" aria-checked="true" type="button">Super Admin</button>
-          <button class="segmented-btn" data-principal="admin" role="radio" aria-checked="false" type="button">Admin</button>
-          <button class="segmented-btn" data-principal="support" role="radio" aria-checked="false" type="button">Support</button>
+        <!-- Current decision -->
+        <div id="current-decision" class="decision-banner" aria-live="polite" role="status">
+          <span class="decision-actor-label">—</span>
+          <span class="decision-verb">—</span>
+          <span class="decision-outcome">—</span>
+          <span class="decision-reason"></span>
         </div>
-      </div>
-      <div class="control-group">
-        <span class="control-label">Denied table actions</span>
-        <div class="segmented" role="radiogroup" aria-label="Presentation mode">
-          <button class="segmented-btn" data-mode="disabled" role="radio" aria-checked="true" type="button">Show disabled</button>
-          <button class="segmented-btn" data-mode="hide" role="radio" aria-checked="false" type="button">Hide</button>
-        </div>
-      </div>
-      <div class="control-group control-group--reset">
-        <button id="reset-demo-btn" class="btn-reset" type="button">Reset demo</button>
-      </div>
-    </section>
 
-    <!-- ═══ Feedback ═══ -->
-    <div id="feedback" class="feedback" aria-live="polite" role="status"></div>
-
-    <!-- ═══ Cars table ═══ -->
-    <section class="table-section" aria-labelledby="cars-heading">
-      <div class="section-row">
-        <h2 id="cars-heading" class="section-title">Cars</h2>
-        <button id="create-car-btn" class="btn-create" type="button">+&nbsp;Create</button>
-      </div>
-      <div class="table-wrap">
-        <table class="ledger-table">
-          <thead>
-            <tr>
-              <th scope="col" class="col-id">#</th>
-              <th scope="col">Make</th>
-              <th scope="col">Model</th>
-              <th scope="col" class="col-actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="cars-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ═══ Decision trace & Policy controls ═══ -->
-    <div class="support-panel">
-      <!-- Decision trace -->
-      <section class="trace-panel" aria-labelledby="trace-heading">
-        <h2 id="trace-heading" class="section-title">Trace</h2>
-        <div id="decision-trace" class="trace-content">
-          <p class="trace-placeholder">Switch principal or attempt an action to see the decision trace.</p>
-        </div>
-      </section>
-
-      <!-- Policy controls -->
-      <section id="policy-section" class="policy-panel" aria-labelledby="policy-heading">
-        <h2 id="policy-heading" class="section-title">Policy editor</h2>
-
-        <!-- Super Admin view -->
-        <div id="policy-super-admin">
-          <p class="policy-target-label">Managing in-memory policy for <strong>Support</strong></p>
-
-          <div class="policy-block">
-            <h3 class="policy-block-title">Direct grants</h3>
-            <label class="policy-toggle" data-permission="update">
-              <input type="checkbox" id="toggle-update-grant" />
-              <span class="toggle-label">Grant <code>cars.update</code> to Support</span>
-            </label>
+        <!-- Decision trace -->
+        <section class="trace-panel" aria-labelledby="trace-heading">
+          <h2 id="trace-heading" class="section-title">Trace</h2>
+          <div id="decision-trace" class="trace-content">
+            <p class="trace-placeholder">Switch principal or attempt an action to see the decision trace.</p>
           </div>
+        </section>
 
-          <div class="policy-block">
-            <h3 class="policy-block-title">Deny overrides</h3>
-            <label class="policy-toggle" data-permission="delete-deny">
-              <input type="checkbox" id="toggle-delete-deny" checked />
-              <span class="toggle-label">Add <code>cars.delete</code> deny override for Support</span>
-            </label>
-          </div>
+        <!-- Policy controls -->
+        <section id="policy-section" class="policy-panel" aria-labelledby="policy-heading">
+          <h2 id="policy-heading" class="section-title">Policy editor</h2>
 
-          <div class="policy-block">
-            <h3 class="policy-block-title">Temporal schedule</h3>
-            <label class="policy-toggle" data-permission="schedule">
-              <input type="checkbox" id="toggle-schedule" checked />
-              <span class="toggle-label">Enforce schedule on <code>reports.read</code></span>
-            </label>
-            <div class="schedule-editor">
-              <div class="hour-input-group">
-                <label class="hour-label" for="schedule-start-h">Start (UTC)</label>
-                <div class="hour-field">
-                  <input type="number" id="schedule-start-h" class="hour-input" min="0" max="23" value="9" aria-label="Start hour" />
-                  <span class="hour-sep">:</span>
-                  <input type="number" id="schedule-start-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="Start minute" />
+          <div id="policy-super-admin">
+            <p class="policy-target-label">Managing in-memory policy for <strong>Support</strong></p>
+
+            <div class="policy-block">
+              <h3 class="policy-block-title">Direct grants</h3>
+              <label class="policy-toggle" data-permission="update">
+                <input type="checkbox" id="toggle-update-grant" />
+                <span class="toggle-label">Grant <code>cars.update</code> to Support</span>
+              </label>
+            </div>
+
+            <div class="policy-block">
+              <h3 class="policy-block-title">Deny overrides</h3>
+              <label class="policy-toggle" data-permission="delete-deny">
+                <input type="checkbox" id="toggle-delete-deny" checked />
+                <span class="toggle-label">Add <code>cars.delete</code> deny override for Support</span>
+              </label>
+            </div>
+
+            <div class="policy-block">
+              <h3 class="policy-block-title">Temporal schedule</h3>
+              <p class="schedule-note">Hypothetical scenario: <code>reports.read</code> evaluated against a configurable schedule. No actual reports UI exists — this is a pure decision demonstration.</p>
+              <label class="policy-toggle" data-permission="schedule">
+                <input type="checkbox" id="toggle-schedule" checked />
+                <span class="toggle-label">Enforce schedule on <code>reports.read</code></span>
+              </label>
+              <div class="schedule-editor">
+                <div class="hour-input-group">
+                  <label class="hour-label" for="schedule-start-h">Start (UTC)</label>
+                  <div class="hour-field">
+                    <input type="number" id="schedule-start-h" class="hour-input" min="0" max="23" value="9" aria-label="Start hour" />
+                    <span class="hour-sep">:</span>
+                    <input type="number" id="schedule-start-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="Start minute" />
+                  </div>
+                </div>
+                <div class="hour-input-group">
+                  <label class="hour-label" for="schedule-end-h">End (UTC)</label>
+                  <div class="hour-field">
+                    <input type="number" id="schedule-end-h" class="hour-input" min="0" max="23" value="17" aria-label="End hour" />
+                    <span class="hour-sep">:</span>
+                    <input type="number" id="schedule-end-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="End minute" />
+                  </div>
                 </div>
               </div>
-              <div class="hour-input-group">
-                <label class="hour-label" for="schedule-end-h">End (UTC)</label>
-                <div class="hour-field">
-                  <input type="number" id="schedule-end-h" class="hour-input" min="0" max="23" value="17" aria-label="End hour" />
-                  <span class="hour-sep">:</span>
-                  <input type="number" id="schedule-end-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="End minute" />
+              <div class="clock-controls">
+                <span class="clock-label">Evaluation clock</span>
+                <div class="clock-row">
+                  <span id="clock-display" class="clock-time">—</span>
+                  <div class="clock-buttons">
+                    <button id="clock-dec" class="clock-btn" type="button" title="Back 1 hour" aria-label="Back 1 hour">−1h</button>
+                    <button id="clock-inc" class="clock-btn" type="button" title="Forward 1 hour" aria-label="Forward 1 hour">+1h</button>
+                    <button id="clock-reset" class="clock-btn" type="button" title="Reset to initial" aria-label="Reset clock">reset</button>
+                  </div>
                 </div>
+                <div id="schedule-result" class="schedule-result">—</div>
               </div>
             </div>
-            <div class="clock-controls">
-              <span class="clock-label">Evaluation clock</span>
-              <div class="clock-row">
-                <span id="clock-display" class="clock-time">—</span>
-                <div class="clock-buttons">
-                  <button id="clock-dec" class="clock-btn" type="button" title="Back 1 hour" aria-label="Back 1 hour">−1h</button>
-                  <button id="clock-inc" class="clock-btn" type="button" title="Forward 1 hour" aria-label="Forward 1 hour">+1h</button>
-                  <button id="clock-reset" class="clock-btn" type="button" title="Reset to initial" aria-label="Reset clock">reset</button>
-                </div>
-              </div>
-              <div id="schedule-result" class="schedule-result">—</div>
+          </div>
+
+          <div id="policy-locked" hidden>
+            <div class="locked-notice">
+              <p class="locked-icon">🔒</p>
+              <p class="locked-text">
+                Policy management is restricted to <strong>Super Admin</strong>.
+                <span class="actor-name" data-actor="admin">Admin</span>
+                <span class="actor-name" data-actor="support">Support</span>
+                does not have the <code>manage-policy</code> permission.
+                Switch to Super Admin to explore the policy editor.
+              </p>
             </div>
           </div>
-        </div>
+        </section>
+      </aside>
 
-        <!-- Non-manager view -->
-        <div id="policy-locked" hidden>
-          <div class="locked-notice">
-            <p class="locked-icon">🔒</p>
-            <p class="locked-text">
-              Policy management is restricted to <strong>Super Admin</strong>.
-              <span class="actor-name" data-actor="admin">Admin</span>
-              <span class="actor-name" data-actor="support">Support</span>
-              does not have the <code>manage-policy</code> permission.
-              Switch to Super Admin to explore the policy editor.
+      <!-- ═══ Main content ═══ -->
+      <main class="content">
+
+        <section class="controls-bar" aria-label="Controls">
+          <div class="control-group">
+            <span class="control-label">Acting principal</span>
+            <div class="segmented" role="radiogroup" aria-label="Switch principal">
+              <button class="segmented-btn" data-principal="super-admin" role="radio" aria-checked="true" type="button">Super Admin</button>
+              <button class="segmented-btn" data-principal="admin" role="radio" aria-checked="false" type="button">Admin</button>
+              <button class="segmented-btn" data-principal="support" role="radio" aria-checked="false" type="button">Support</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Denied table actions</span>
+            <div class="segmented" role="radiogroup" aria-label="Presentation mode">
+              <button class="segmented-btn" data-mode="disabled" role="radio" aria-checked="true" type="button">Show disabled</button>
+              <button class="segmented-btn" data-mode="hide" role="radio" aria-checked="false" type="button">Hide</button>
+            </div>
+          </div>
+          <div class="control-group control-group--reset">
+            <button id="reset-demo-btn" class="btn-reset" type="button">Reset demo</button>
+          </div>
+        </section>
+
+        <div id="feedback" class="feedback" aria-live="polite" role="status"></div>
+
+        <section class="table-section" aria-labelledby="cars-heading">
+          <div class="section-row">
+            <h2 id="cars-heading" class="section-title">Cars</h2>
+            <button id="create-car-btn" class="btn-create" type="button">+&nbsp;Create</button>
+          </div>
+          <!-- Inline create form (hidden by default) -->
+          <div id="create-form" class="inline-form" hidden>
+            <input type="text" id="create-make" class="inline-input" placeholder="Make (e.g. Tesla)" aria-label="Car make" />
+            <input type="text" id="create-model" class="inline-input" placeholder="Model (e.g. Model 3)" aria-label="Car model" />
+            <button id="create-save" class="inline-btn inline-btn--primary" type="button">Save</button>
+            <button id="create-cancel" class="inline-btn" type="button">Cancel</button>
+          </div>
+          <div class="table-wrap">
+            <table class="ledger-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="col-id">#</th>
+                  <th scope="col">Make</th>
+                  <th scope="col">Model</th>
+                  <th scope="col" class="col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="cars-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer class="ledger-footer">
+          <div class="footer-content">
+            <p>
+              <strong>How it works:</strong> Adapters (<code>MemoryAdapter</code> + demo-only mutable sources) provide
+              authorization facts. <strong>@mizan/core</strong> evaluates them against the requested permission, scope,
+              temporal window, and schedule, then returns an explainable <code>allow</code> or <code>deny</code>.
+              <em>Adapters provide facts; Mizan makes the final decision.</em>
+            </p>
+            <p class="security-warning">
+              ⚠ <strong>Production security:</strong> Hiding or disabling a button in the browser does <em>not</em>
+              enforce authorization. Every protected action in this demo calls the real Mizan <code>decide()</code>
+              before mutating state — the same pattern a production application <strong>must repeat on its server or
+              API boundary</strong>. The policy editor modifies demo-only in-memory state and is not a real policy
+              administration interface.
             </p>
           </div>
-        </div>
-      </section>
-    </div>
+        </footer>
 
-    <!-- ═══ Footer ═══ -->
-    <footer class="ledger-footer">
-      <div class="footer-content">
-        <p>
-          <strong>How it works:</strong> Adapters (<code>MemoryAdapter</code> + demo-only mutable sources) provide
-          authorization facts. <strong>@mizan/core</strong> evaluates them against the requested permission, scope,
-          temporal window, and schedule, then returns an explainable <code>allow</code> or <code>deny</code>.
-          <em>Adapters provide facts; Mizan makes the final decision.</em>
-        </p>
-        <p class="security-warning">
-          ⚠ <strong>Production security:</strong> Hiding or disabling a button in the browser does <em>not</em>
-          enforce authorization. Every protected action in this demo calls the real Mizan <code>decide()</code>
-          before mutating state — the same pattern a production application <strong>must repeat on its server or
-          API boundary</strong>. The policy editor modifies demo-only in-memory state and is not a real policy
-          administration interface.
-        </p>
-      </div>
-    </footer>
+      </main>
+    </div>
 
     <script src="dist/main.js"></script>
   </body>
