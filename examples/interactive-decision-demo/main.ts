@@ -287,6 +287,11 @@ if (saved && Array.isArray(saved.cars)) {
   scheduleStartM = saved.scheduleStartM;
   scheduleEndH = saved.scheduleEndH;
   scheduleEndM = saved.scheduleEndM;
+  // Clamp persisted values to valid ranges (corrupted localStorage guard).
+  scheduleStartH = Math.max(0, Math.min(23, scheduleStartH));
+  scheduleStartM = Math.max(0, Math.min(59, scheduleStartM));
+  scheduleEndH = Math.max(0, Math.min(23, scheduleEndH));
+  scheduleEndM = Math.max(0, Math.min(59, scheduleEndM));
   clockTime = new Date(saved.clockTime);
   if (isNaN(clockTime.getTime())) {
     clockTime = new Date(INITIAL_CLOCK);
@@ -419,12 +424,32 @@ function updateTrace(
   entry.className = "trace-entry";
 
   const isAllow = decision === "allow";
-  entry.innerHTML = `
-    <span class="trace-permission">${action}</span>
-    <span class="trace-result trace-result--${decision}">${isAllow ? "✓ allow" : "✗ deny"}</span>
-    ${reason ? `<span class="trace-reason">${reason}</span>` : ""}
-    ${details ? details.map((d) => `<div class="trace-detail">${d}</div>`).join("") : ""}
-  `;
+
+  const permSpan = document.createElement("span");
+  permSpan.className = "trace-permission";
+  permSpan.textContent = action;
+  entry.appendChild(permSpan);
+
+  const resultSpan = document.createElement("span");
+  resultSpan.className = `trace-result trace-result--${decision}`;
+  resultSpan.textContent = isAllow ? "✓ allow" : "✗ deny";
+  entry.appendChild(resultSpan);
+
+  if (reason) {
+    const reasonSpan = document.createElement("span");
+    reasonSpan.className = "trace-reason";
+    reasonSpan.textContent = reason;
+    entry.appendChild(reasonSpan);
+  }
+
+  if (details) {
+    for (const d of details) {
+      const detailDiv = document.createElement("div");
+      detailDiv.className = "trace-detail";
+      detailDiv.textContent = d;
+      entry.appendChild(detailDiv);
+    }
+  }
 
   trace.prepend(entry);
   while (trace.children.length > 8) {
