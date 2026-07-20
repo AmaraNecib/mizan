@@ -331,6 +331,12 @@ function showDecision(
 function clearDecision(): void {
   lastDecision = null;
   const strip = byId("current-decision");
+  // Wipe all visible state so no stale actor/permission leaks through.
+  strip.className = "decision-strip";
+  strip.querySelector(".decision-actor-label")!.textContent = "";
+  strip.querySelector(".decision-verb")!.textContent = "";
+  strip.querySelector(".decision-outcome")!.textContent = "";
+  strip.querySelector(".decision-reason")!.textContent = "";
   strip.hidden = true;
   const trace = byId("decision-trace");
   trace.innerHTML = `<p class="trace-placeholder">${formatPrincipal(currentPrincipal)} selected — attempt an action to see the decision trace.<\/p>`;
@@ -516,7 +522,9 @@ async function renderTable(): Promise<void> {
     );
     addActionBtn(actionsTd, "Update", updateResult, () =>
       attemptAction("cars.update", () => {
-        openUpdateEditor(car);
+        closeActiveEditor();
+        activeEditor = car.id;
+        renderTable();
       }),
     );
     addActionBtn(actionsTd, "Delete", deleteResult, () =>
@@ -530,6 +538,11 @@ async function renderTable(): Promise<void> {
 
     tr.appendChild(actionsTd);
     tbody.appendChild(tr);
+
+    // If this car is being edited, render the update editor row directly below.
+    if (activeEditor === car.id) {
+      tbody.appendChild(buildUpdateEditorRow(car));
+    }
   }
 
   const createResult = await safeDecide("cars.create");
@@ -798,9 +811,6 @@ let activeEditor: "create" | number | null = null;
 function closeActiveEditor(): void {
   if (activeEditor === "create") {
     byId("create-form").hidden = true;
-  } else if (typeof activeEditor === "number") {
-    const row = document.querySelector(`tr[data-editor="${activeEditor}"]`);
-    if (row) row.remove();
   }
   activeEditor = null;
 }
@@ -852,62 +862,43 @@ function setupCreateForm(): void {
   });
 }
 
-// ─── Inline update editor (per-row) ───────────────────────────────────────
+// ─── Update editor row (rendered deterministically inside renderTable) ────
 
-function openUpdateEditor(car: Car): void {
-  if (activeEditor !== null) closeActiveEditor();
-  activeEditor = car.id;
+function buildUpdateEditorRow(car: Car): HTMLTableRowElement {
+  const row = document.createElement("tr");
+  row.className = "update-editor-row";
 
-  const tbody = byId<HTMLTableSectionElement>("cars-tbody");
-  const targetRow = tbody.querySelector(`tr[data-car-id="${car.id}"]`);
-  if (!targetRow) return;
+  const mkInput = (val: string, label: string) => {
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "inline-input";
+    inp.value = val;
+    inp.setAttribute("aria-label", label);
+    return inp;
+  };
 
-  const editorRow = document.createElement("tr");
-  editorRow.dataset.editor = String(car.id);
-  editorRow.className = "update-editor-row";
+  const makeInput = mkInput(car.make, "Car make");
+  const modelInput = mkInput(car.model, "Car model");
 
-  // Empty ID cell
-  const idTd = document.createElement("td");
-  editorRow.appendChild(idTd);
-
-  // Make input cell
-  const makeTd = document.createElement("td");
-  const makeInput = document.createElement("input");
-  makeInput.type = "text";
-  makeInput.className = "inline-input";
-  makeInput.value = car.make;
-  makeInput.setAttribute("aria-label", "Car make");
-  makeTd.appendChild(makeInput);
-  editorRow.appendChild(makeTd);
-
-  // Model input cell
-  const modelTd = document.createElement("td");
-  const modelInput = document.createElement("input");
-  modelInput.type = "text";
-  modelInput.className = "inline-input";
-  modelInput.value = car.model;
-  modelInput.setAttribute("aria-label", "Car model");
-  modelTd.appendChild(modelInput);
-  editorRow.appendChild(modelTd);
-
-  // Action buttons cell
-  const actionsTd = document.createElement("td");
   const saveBtn = document.createElement("button");
   saveBtn.className = "inline-btn inline-btn--primary";
   saveBtn.textContent = "Save";
+
   const cancelBtn = document.createElement("button");
   cancelBtn.className = "inline-btn";
   cancelBtn.textContent = "Cancel";
-  actionsTd.appendChild(saveBtn);
-  actionsTd.appendChild(document.createTextNode(" "));
-  actionsTd.appendChild(cancelBtn);
-  editorRow.appendChild(actionsTd);
 
-  targetRow.insertAdjacentElement("afterend", editorRow);
-  makeInput.focus();
-
-  const finishUpdate = (save: boolean) => {
+  const finish = async (save: boolean) => {
     if (save) {
+      // Re-check authorization before mutating.
+      const result = await getEvaluator(currentPrincipal).decide("cars.update");
+      if (result.decision !== "allow") {
+        showDecision(currentPrincipal, "cars.update", result.decision, result.reason);
+        showFeedback("cars.update no longer allowed", "error");
+        activeEditor = null;
+        renderTable();
+        return;
+      }
       const newMake = makeInput.value.trim();
       const newModel = modelInput.value.trim();
       if (newMake && newModel) {
@@ -915,21 +906,41 @@ function openUpdateEditor(car: Car): void {
         car.model = newModel;
         showFeedback(`Car #${car.id} updated`, "success");
         saveState();
-        renderTable();
-        return;
       }
     }
-    editorRow.remove();
-    if (activeEditor === car.id) activeEditor = null;
+    activeEditor = null;
+    renderTable();
   };
 
-  saveBtn.addEventListener("click", () => finishUpdate(true));
-  cancelBtn.addEventListener("click", () => finishUpdate(false));
-  makeInput.addEventListener("keydown", (e) => { if (e.key === "Escape") finishUpdate(false); });
+  saveBtn.addEventListener("click", () => finish(true));
+  cancelBtn.addEventListener("click", () => finish(false));
+  makeInput.addEventListener("keydown", (e) => { if (e.key === "Escape") finish(false); });
   modelInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") finishUpdate(true);
-    if (e.key === "Escape") finishUpdate(false);
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
   });
+
+  // ID cell (empty)
+  row.appendChild(document.createElement("td"));
+  // Make cell
+  const makeTd = document.createElement("td");
+  makeTd.appendChild(makeInput);
+  row.appendChild(makeTd);
+  // Model cell
+  const modelTd = document.createElement("td");
+  modelTd.appendChild(modelInput);
+  row.appendChild(modelTd);
+  // Actions cell
+  const actionsTd = document.createElement("td");
+  actionsTd.appendChild(saveBtn);
+  actionsTd.appendChild(document.createTextNode(" "));
+  actionsTd.appendChild(cancelBtn);
+  row.appendChild(actionsTd);
+
+  // Focus the first field after render.
+  requestAnimationFrame(() => makeInput.focus());
+
+  return row;
 }
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────

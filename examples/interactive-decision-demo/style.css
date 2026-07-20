@@ -36,6 +36,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 
 html { font-size: 16px; }
 
@@ -49,7 +50,7 @@ body {
   min-height: 100vh;
 }
 
-/* ─── Layout (body is single scroll owner) ──────────────────────────── */
+/* ─── Layout ────────────────────────────────────────────────────────── */
 .layout {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
@@ -103,25 +104,10 @@ body {
   line-height: 1.5;
   margin-bottom: var(--space-md);
   transition: background 0.18s ease, border-color 0.18s ease;
-  min-height: 0;
 }
 
-.decision-strip.idle {
-  background: var(--paper-raised);
-  border-color: var(--paper-border);
-  color: var(--ink-faint);
-  font-style: italic;
-}
-
-.decision-strip.result-allow {
-  background: var(--allow-soft);
-  border-color: oklch(80% 0.06 150);
-}
-
-.decision-strip.result-deny {
-  background: var(--deny-soft);
-  border-color: oklch(80% 0.08 28);
-}
+.decision-strip.result-allow { background: var(--allow-soft); border-color: oklch(80% 0.06 150); }
+.decision-strip.result-deny { background: var(--deny-soft); border-color: oklch(80% 0.08 28); }
 
 .decision-actor-label { font-weight: 600; font-family: var(--font-display); color: var(--ink); }
 .decision-verb { color: var(--ink-muted); font-size: 0.78rem; word-break: break-all; }
@@ -240,26 +226,20 @@ body {
 .feedback-error { background: var(--deny-soft); border-color: oklch(80% 0.08 28); color: var(--deny); }
 .feedback-info { background: var(--paper-raised); border-color: var(--paper-border); color: var(--ink-muted); }
 
-/* ─── Inline forms ──────────────────────────────────────────────────── */
-.inline-form {
-  display: flex; gap: var(--space-sm); align-items: center;
-  padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-sm);
-  background: var(--paper-raised); border: 1px solid var(--paper-border); border-radius: 4px;
-}
+/* ─── Inline create form ────────────────────────────────────────────── */
+.inline-form { display: flex; gap: var(--space-sm); align-items: center; padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-sm); background: var(--paper-raised); border: 1px solid var(--paper-border); border-radius: 4px; }
+
 .inline-input { padding: 0.25rem 0.45rem; font-family: var(--font-body); font-size: 0.8rem; border: 1px solid var(--paper-border); border-radius: 3px; background: var(--paper); color: var(--ink); width: 9rem; }
 .inline-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+
 .inline-btn { padding: 0.25rem 0.6rem; font-family: var(--font-body); font-size: 0.76rem; font-weight: 500; border: 1px solid var(--paper-border); border-radius: 3px; background: var(--paper); color: var(--ink-muted); cursor: pointer; }
 .inline-btn:hover { background: var(--paper-hover); }
 .inline-btn--primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .inline-btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .inline-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* ─── Update editor row ─────────────────────────────────────────────── */
-.update-editor-row td {
-  padding: var(--space-xs) var(--space-md);
-  background: var(--paper-raised);
-  border-bottom: 2px solid var(--accent);
-}
+/* ─── Update editor row (rendered inside table) ─────────────────────── */
+.update-editor-row td { padding: var(--space-xs) var(--space-md); background: var(--paper-raised); border-bottom: 2px solid var(--accent); }
 .update-editor-row .inline-input { width: 100%; }
 
 /* ─── Table section ─────────────────────────────────────────────────── */
@@ -278,6 +258,7 @@ body {
 .ledger-table thead th { font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); text-align: left; padding: var(--space-sm) var(--space-md); border-bottom: 2px solid var(--ink); }
 .ledger-table tbody td { padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--paper-border); vertical-align: middle; }
 .ledger-table tbody tr:hover { background: var(--paper-raised); }
+.ledger-table tbody tr:has(+ .update-editor-row) td { border-bottom-color: transparent; }
 .col-id { width: 2.5rem; }
 .col-actions { width: 17rem; }
 
@@ -313,7 +294,14 @@ body {
   font-size: 0.82rem;
   color: var(--ink-muted);
   line-height: 1.7;
-  max-width: 72ch;
+}
+
+@media (min-width: 900px) {
+  .how-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl);
+  }
 }
 
 .how-body p { margin-bottom: var(--space-md); }
