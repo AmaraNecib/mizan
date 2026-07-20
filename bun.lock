@@ -12,8 +12,8 @@
       "name": "@mizan/interactive-decision-demo",
       "version": "0.1.0",
       "dependencies": {
-        "@mizan/core": "file:../../packages/core",
-        "@mizan/memory": "file:../../packages/memory",
+        "@mizan/core": "workspace:*",
+        "@mizan/memory": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^5.7.3",
@@ -62,11 +62,5 @@
     "husky": ["husky@9.1.7", "", { "bin": { "husky": "bin.js" } }, "sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@mizan/interactive-decision-demo/@mizan/core": ["@mizan/core@file:packages/core", { "devDependencies": { "typescript": "^5.7.3" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }],
-
-    "@mizan/interactive-decision-demo/@mizan/memory": ["@mizan/memory@file:packages/memory", { "dependencies": { "@mizan/core": "workspace:*" }, "devDependencies": { "typescript": "^5.7.3" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }],
-
-    "@mizan/interactive-decision-demo/@mizan/memory/@mizan/core": ["@mizan/core@file:packages/core", { "devDependencies": { "typescript": "^5.7.3" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }],
   }
 }
