@@ -20,12 +20,11 @@
     <div class="layout">
       <!-- ═══ Left sidebar ═══ -->
       <aside class="sidebar">
-
         <!-- Current decision -->
         <div id="current-decision" class="decision-banner" aria-live="polite" role="status" hidden>
-          <span class="decision-actor-label">—</span>
-          <span class="decision-verb">—</span>
-          <span class="decision-outcome">—</span>
+          <span class="decision-actor-label"></span>
+          <span class="decision-verb"></span>
+          <span class="decision-outcome"></span>
           <span class="decision-reason"></span>
         </div>
 
@@ -33,7 +32,7 @@
         <section class="trace-panel" aria-labelledby="perms-heading">
           <h2 id="perms-heading" class="section-title">Permissions</h2>
           <ul id="perm-summary" class="perm-summary" aria-live="polite">
-            <li>Switch principal to see permissions.</li>
+            <li class="perm-placeholder">Switch principal to see permissions.</li>
           </ul>
         </section>
 
@@ -125,7 +124,6 @@
 
       <!-- ═══ Main content ═══ -->
       <main class="content">
-
         <section class="controls-bar" aria-label="Controls">
           <div class="control-group">
             <span class="control-label">Acting principal</span>
@@ -154,7 +152,7 @@
             <h2 id="cars-heading" class="section-title">Cars</h2>
             <button id="create-car-btn" class="btn-create" type="button">+&nbsp;Create</button>
           </div>
-          <!-- Inline create form (hidden by default) -->
+          <!-- Inline create form (hidden by default, shown after allowed check) -->
           <div id="create-form" class="inline-form" hidden>
             <input type="text" id="create-make" class="inline-input" placeholder="Make (e.g. Tesla)" aria-label="Car make" />
             <input type="text" id="create-model" class="inline-input" placeholder="Model (e.g. Model 3)" aria-label="Car model" />
@@ -175,27 +173,26 @@
             </table>
           </div>
         </section>
-
-        <footer class="ledger-footer">
-          <div class="footer-content">
-            <p>
-              <strong>How it works:</strong> Adapters (<code>MemoryAdapter</code> + demo-only mutable sources) provide
-              authorization facts. <strong>@mizan/core</strong> evaluates them against the requested permission, scope,
-              temporal window, and schedule, then returns an explainable <code>allow</code> or <code>deny</code>.
-              <em>Adapters provide facts; Mizan makes the final decision.</em>
-            </p>
-            <p class="security-warning">
-              ⚠ <strong>Production security:</strong> Hiding or disabling a button in the browser does <em>not</em>
-              enforce authorization. Every protected action in this demo calls the real Mizan <code>decide()</code>
-              before mutating state — the same pattern a production application <strong>must repeat on its server or
-              API boundary</strong>. The policy editor modifies demo-only in-memory state and is not a real policy
-              administration interface.
-            </p>
-          </div>
-        </footer>
-
       </main>
     </div>
+
+    <footer class="ledger-footer">
+      <div class="footer-content">
+        <p>
+          <strong>How it works:</strong> Adapters (<code>MemoryAdapter</code> + demo-only mutable sources) provide
+          authorization facts. <strong>@mizan/core</strong> evaluates them against the requested permission, scope,
+          temporal window, and schedule, then returns an explainable <code>allow</code> or <code>deny</code>.
+          <em>Adapters provide facts; Mizan makes the final decision.</em>
+        </p>
+        <p class="security-warning">
+          ⚠ <strong>Production security:</strong> Hiding or disabling a button in the browser does <em>not</em>
+          enforce authorization. Every protected action in this demo calls the real Mizan <code>decide()</code>
+          before mutating state — the same pattern a production application <strong>must repeat on its server or
+          API boundary</strong>. The policy editor modifies demo-only in-memory state and is not a real policy
+          administration interface.
+        </p>
+      </div>
+    </footer>
 
     <script src="dist/main.js"></script>
   </body>

@@ -515,7 +515,7 @@ async function renderTable(): Promise<void> {
     );
     addActionBtn(actionsTd, "Update", updateResult, () =>
       attemptAction("cars.update", () => {
-        startInlineEdit(car, modelTd);
+        openUpdateEditor(car);
       }),
     );
     addActionBtn(actionsTd, "Delete", deleteResult, () =>
@@ -590,7 +590,7 @@ async function safeDecide(perm: string): Promise<AuthorizationResult> {
 
 // ─── Principal switching ───────────────────────────────────────────────────
 
-function setPrincipal(id: PrincipalId): void {
+async function setPrincipal(id: PrincipalId): Promise<void> {
   currentPrincipal = id;
 
   document.querySelectorAll<HTMLButtonElement>(".segmented-btn[data-principal]").forEach((btn) => {
@@ -607,12 +607,12 @@ function setPrincipal(id: PrincipalId): void {
     el.style.display = el.dataset.actor === id ? "inline" : "none";
   });
 
-  // Clear stale decision banner and trace on switch.
   clearDecision();
-
   syncPolicyUI();
-  renderPermissions();
-  renderTable();
+  await Promise.all([
+    renderPermissions(),
+    renderTable(),
+  ]);
 }
 
 // ─── Policy UI sync ────────────────────────────────────────────────────────
@@ -640,6 +640,7 @@ function setupPolicyToggles(): void {
       byId<HTMLInputElement>("toggle-update-grant").checked = !checked;
     }
     await renderTable();
+    renderPermissions();
     saveState();
   });
 
@@ -656,6 +657,7 @@ function setupPolicyToggles(): void {
       byId<HTMLInputElement>("toggle-delete-deny").checked = !checked;
     }
     await renderTable();
+    renderPermissions();
     saveState();
   });
 }
@@ -789,7 +791,21 @@ function setupScheduleControls(): void {
 
 // ─── Inline create form ────────────────────────────────────────────────────
 
+let activeEditor: "create" | number | null = null;
+
+function closeActiveEditor(): void {
+  if (activeEditor === "create") {
+    byId("create-form").hidden = true;
+  } else if (typeof activeEditor === "number") {
+    const row = document.querySelector(`tr[data-editor="${activeEditor}"]`);
+    if (row) row.remove();
+  }
+  activeEditor = null;
+}
+
 function showCreateForm(): void {
+  if (activeEditor !== null) closeActiveEditor();
+  activeEditor = "create";
   byId("create-form").hidden = false;
   byId<HTMLInputElement>("create-make").value = "";
   byId<HTMLInputElement>("create-model").value = "";
@@ -798,10 +814,19 @@ function showCreateForm(): void {
 
 function hideCreateForm(): void {
   byId("create-form").hidden = true;
+  if (activeEditor === "create") activeEditor = null;
 }
 
 function setupCreateForm(): void {
-  byId<HTMLButtonElement>("create-car-btn").addEventListener("click", showCreateForm);
+  byId<HTMLButtonElement>("create-car-btn").addEventListener("click", async () => {
+    const result = await getEvaluator(currentPrincipal).decide("cars.create");
+    if (result.decision === "allow") {
+      showCreateForm();
+    } else {
+      showDecision(currentPrincipal, "cars.create", result.decision, result.reason);
+      showFeedback("cars.create denied", "error");
+    }
+  });
 
   byId<HTMLButtonElement>("create-save").addEventListener("click", async () => {
     const make = byId<HTMLInputElement>("create-make").value.trim();
@@ -816,7 +841,6 @@ function setupCreateForm(): void {
 
   byId<HTMLButtonElement>("create-cancel").addEventListener("click", hideCreateForm);
 
-  // Enter in model field triggers Save.
   byId<HTMLInputElement>("create-model").addEventListener("keydown", (e) => {
     if (e.key === "Enter") byId<HTMLButtonElement>("create-save").click();
     if (e.key === "Escape") hideCreateForm();
@@ -826,36 +850,84 @@ function setupCreateForm(): void {
   });
 }
 
-// ─── Inline edit (per-row model rename) ────────────────────────────────────
+// ─── Inline update editor (per-row) ───────────────────────────────────────
 
-function startInlineEdit(car: Car, modelTd: HTMLTableCellElement): void {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "inline-edit";
-  input.value = car.model;
-  input.setAttribute("aria-label", "New model name");
+function openUpdateEditor(car: Car): void {
+  if (activeEditor !== null) closeActiveEditor();
+  activeEditor = car.id;
 
-  const finish = (save: boolean) => {
-    const val = input.value.trim();
-    if (save && val && val !== car.model) {
-      car.model = val;
-      showFeedback(`Car #${car.id} updated`, "success");
-      saveState();
-      renderTable();
-    } else {
-      modelTd.textContent = car.model;
+  const tbody = byId<HTMLTableSectionElement>("cars-tbody");
+  const targetRow = tbody.querySelector(`tr[data-car-id="${car.id}"]`);
+  if (!targetRow) return;
+
+  const editorRow = document.createElement("tr");
+  editorRow.dataset.editor = String(car.id);
+  editorRow.className = "update-editor-row";
+
+  // Empty ID cell
+  const idTd = document.createElement("td");
+  editorRow.appendChild(idTd);
+
+  // Make input cell
+  const makeTd = document.createElement("td");
+  const makeInput = document.createElement("input");
+  makeInput.type = "text";
+  makeInput.className = "inline-input";
+  makeInput.value = car.make;
+  makeInput.setAttribute("aria-label", "Car make");
+  makeTd.appendChild(makeInput);
+  editorRow.appendChild(makeTd);
+
+  // Model input cell
+  const modelTd = document.createElement("td");
+  const modelInput = document.createElement("input");
+  modelInput.type = "text";
+  modelInput.className = "inline-input";
+  modelInput.value = car.model;
+  modelInput.setAttribute("aria-label", "Car model");
+  modelTd.appendChild(modelInput);
+  editorRow.appendChild(modelTd);
+
+  // Action buttons cell
+  const actionsTd = document.createElement("td");
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "inline-btn inline-btn--primary";
+  saveBtn.textContent = "Save";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "inline-btn";
+  cancelBtn.textContent = "Cancel";
+  actionsTd.appendChild(saveBtn);
+  actionsTd.appendChild(document.createTextNode(" "));
+  actionsTd.appendChild(cancelBtn);
+  editorRow.appendChild(actionsTd);
+
+  targetRow.insertAdjacentElement("afterend", editorRow);
+  makeInput.focus();
+
+  const finishUpdate = (save: boolean) => {
+    if (save) {
+      const newMake = makeInput.value.trim();
+      const newModel = modelInput.value.trim();
+      if (newMake && newModel) {
+        car.make = newMake;
+        car.model = newModel;
+        showFeedback(`Car #${car.id} updated`, "success");
+        saveState();
+        renderTable();
+        return;
+      }
     }
+    editorRow.remove();
+    if (activeEditor === car.id) activeEditor = null;
   };
 
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") finish(true);
-    if (e.key === "Escape") finish(false);
+  saveBtn.addEventListener("click", () => finishUpdate(true));
+  cancelBtn.addEventListener("click", () => finishUpdate(false));
+  makeInput.addEventListener("keydown", (e) => { if (e.key === "Escape") finishUpdate(false); });
+  modelInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finishUpdate(true);
+    if (e.key === "Escape") finishUpdate(false);
   });
-
-  modelTd.textContent = "";
-  modelTd.appendChild(input);
-  input.focus();
-  input.select();
 }
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────
@@ -893,5 +965,5 @@ document.addEventListener("DOMContentLoaded", () => {
   setPrincipal(currentPrincipal);
   updateClockDisplay();
   evaluateSchedule();
-  updateDecisionBanner();
+  // Decision banner starts hidden — no stale state to clear.
 });
