@@ -53,12 +53,10 @@ body {
   color: var(--ink);
   background: var(--paper);
   padding: var(--space-xl);
-  max-width: 1240px;
-  margin: 0 auto;
   min-height: 100vh;
 }
 
-/* ─── Layout ────────────────────────────────────────────────────────── */
+/* ─── Full-width dashboard layout ───────────────────────────────────── */
 .layout {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
