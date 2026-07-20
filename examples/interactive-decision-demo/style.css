@@ -287,7 +287,7 @@ body {
 .ledger-table tbody td { padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--paper-border); vertical-align: middle; }
 .ledger-table tbody tr:hover { background: var(--paper-raised); }
 .col-id { width: 2.5rem; }
-.col-actions { width: 13rem; }
+.col-actions { width: 16rem; }
 
 .actions-cell { display: flex; gap: var(--space-xs); flex-wrap: wrap; }
 
@@ -324,3 +324,17 @@ body {
 .footer-content em { font-style: normal; font-weight: 600; color: var(--ink); }
 .security-warning { background: oklch(95% 0.02 55); border: 1px solid oklch(88% 0.04 50); border-radius: 4px; padding: var(--space-md) var(--space-lg); color: oklch(38% 0.04 50); }
 .security-warning strong { font-weight: 700; }
+
+/* ─── Permission summary (sidebar) ──────────────────────────────────── */
+.perm-summary { list-style: none; display: flex; flex-direction: column; gap: 0.25rem; }
+.perm-summary li {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.2rem 0.5rem; font-size: 0.78rem; border-radius: 3px;
+  font-family: var(--font-mono);
+}
+.perm-summary .perm-allow { color: var(--allow); }
+.perm-summary .perm-deny { color: var(--deny); }
+.perm-summary .perm-key { font-weight: 500; }
+.perm-summary .perm-badge { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.perm-summary .perm-badge.allow { color: var(--allow); }
+.perm-summary .perm-badge.deny { color: var(--deny); }

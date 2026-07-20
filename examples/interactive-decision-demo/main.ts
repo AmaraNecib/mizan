@@ -343,14 +343,11 @@ function updateDecisionBanner(): void {
   const reasonEl = banner.querySelector(".decision-reason")!;
 
   if (!lastDecision) {
-    banner.className = "decision-banner idle";
-    labelEl.textContent = "No decision yet";
-    verbEl.textContent = "";
-    outcomeEl.textContent = "";
-    reasonEl.textContent = "";
+    banner.hidden = true;
     return;
   }
 
+  banner.hidden = false;
   const d = lastDecision;
   const isAllow = d.decision === "allow";
   banner.className = `decision-banner result-${d.decision}`;
@@ -366,6 +363,40 @@ function formatPrincipal(id: PrincipalId): string {
     case "admin": return "Admin";
     case "support": return "Support";
   }
+}
+
+// ─── Permission summary (sidebar) ────────────────────────────────────────
+
+/** Evaluate every relevant permission for the current principal and render the sidebar list. */
+async function renderPermissions(): Promise<void> {
+  const list = byId<HTMLUListElement>("perm-summary");
+  const perms = [
+    "cars.read",
+    "cars.create",
+    "cars.update",
+    "cars.delete",
+    "manage-policy",
+    "reports.read",
+  ];
+  const results = await Promise.all(
+    perms.map(async (p) => {
+      try {
+        const r = await getEvaluator(currentPrincipal).decide(p);
+        return { permission: p, result: r };
+      } catch {
+        return { permission: p, result: { decision: "deny" as const, reason: "error" } };
+      }
+    }),
+  );
+
+  list.innerHTML = results
+    .map(({ permission, result }) => {
+      const isAllow = result.decision === "allow";
+      const cls = isAllow ? "allow" : "deny";
+      const badge = isAllow ? "✓" : `✗ ${result.reason ?? ""}`;
+      return `<li class="perm-${cls}"><span class="perm-key">${permission}</span><span class="perm-badge ${cls}">${badge}</span></li>`;
+    })
+    .join("");
 }
 
 // ─── Decision trace ────────────────────────────────────────────────────────
@@ -580,6 +611,7 @@ function setPrincipal(id: PrincipalId): void {
   clearDecision();
 
   syncPolicyUI();
+  renderPermissions();
   renderTable();
 }
 
@@ -819,7 +851,6 @@ function startInlineEdit(car: Car, modelTd: HTMLTableCellElement): void {
     if (e.key === "Enter") finish(true);
     if (e.key === "Escape") finish(false);
   });
-  input.addEventListener("blur", () => finish(true));
 
   modelTd.textContent = "";
   modelTd.appendChild(input);

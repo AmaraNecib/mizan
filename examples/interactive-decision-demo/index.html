@@ -22,12 +22,20 @@
       <aside class="sidebar">
 
         <!-- Current decision -->
-        <div id="current-decision" class="decision-banner" aria-live="polite" role="status">
+        <div id="current-decision" class="decision-banner" aria-live="polite" role="status" hidden>
           <span class="decision-actor-label">—</span>
           <span class="decision-verb">—</span>
           <span class="decision-outcome">—</span>
           <span class="decision-reason"></span>
         </div>
+
+        <!-- Current permissions -->
+        <section class="trace-panel" aria-labelledby="perms-heading">
+          <h2 id="perms-heading" class="section-title">Permissions</h2>
+          <ul id="perm-summary" class="perm-summary" aria-live="polite">
+            <li>Switch principal to see permissions.</li>
+          </ul>
+        </section>
 
         <!-- Decision trace -->
         <section class="trace-panel" aria-labelledby="trace-heading">
