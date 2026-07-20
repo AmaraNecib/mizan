@@ -890,6 +890,12 @@ function buildUpdateEditorRow(car: Car): HTMLTableRowElement {
 
   const finish = async (save: boolean) => {
     if (save) {
+      const newMake = makeInput.value.trim();
+      const newModel = modelInput.value.trim();
+      if (!newMake || !newModel) {
+        showFeedback("Make and model cannot be empty", "error");
+        return;
+      }
       // Re-check authorization before mutating.
       const result = await getEvaluator(currentPrincipal).decide("cars.update");
       if (result.decision !== "allow") {
@@ -899,14 +905,10 @@ function buildUpdateEditorRow(car: Car): HTMLTableRowElement {
         renderTable();
         return;
       }
-      const newMake = makeInput.value.trim();
-      const newModel = modelInput.value.trim();
-      if (newMake && newModel) {
-        car.make = newMake;
-        car.model = newModel;
-        showFeedback(`Car #${car.id} updated`, "success");
-        saveState();
-      }
+      car.make = newMake;
+      car.model = newModel;
+      showFeedback(`Car #${car.id} updated`, "success");
+      saveState();
     }
     activeEditor = null;
     renderTable();

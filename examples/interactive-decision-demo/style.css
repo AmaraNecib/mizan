@@ -3,7 +3,7 @@
 :root {
   --ink: oklch(20% 0.014 50);
   --ink-muted: oklch(50% 0.016 55);
-  --ink-faint: oklch(70% 0.014 60);
+  --ink-faint: oklch(50% 0.018 55);
   --paper: oklch(97% 0.006 70);
   --paper-raised: oklch(94% 0.009 65);
   --paper-border: oklch(88% 0.012 65);
