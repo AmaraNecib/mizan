@@ -1,0 +1,17 @@
+{
+  "name": "@mizan/interactive-decision-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./main.ts --outdir=dist",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@mizan/core": "file:../../packages/core",
+    "@mizan/memory": "file:../../packages/memory"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

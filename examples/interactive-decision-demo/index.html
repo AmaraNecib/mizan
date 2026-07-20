@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mizan — Interactive Authorization Decision Gallery</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Authorization Decision Gallery</h1>
+      <p class="subtitle">
+        Powered by <strong>@mizan/core</strong> + <strong>@mizan/memory</strong>
+      </p>
+    </header>
+
+    <main>
+      <!-- ═══ Role-based comparison ═══ -->
+      <section aria-labelledby="comparison-heading">
+        <h2 id="comparison-heading">Role-based permissions</h2>
+        <p class="section-note">
+          Each principal is assigned a role. The memory adapter resolves
+          role-derived grants; a second source provides a principal-specific
+          denial. Mizan evaluates all facts and makes the final decision.
+        </p>
+
+        <div class="comparison" role="group" aria-label="Principal comparison">
+          <!-- Admin column -->
+          <article class="card" aria-label="Admin permissions">
+            <h3 class="principal-name">Admin</h3>
+            <ul class="permission-list" id="admin-results" aria-live="polite">
+              <li class="permission-row loading" data-permission="cars.read">
+                <span class="permission-key">cars.read</span>
+                <span class="decision-badge">…</span>
+              </li>
+              <li class="permission-row loading" data-permission="cars.delete">
+                <span class="permission-key">cars.delete</span>
+                <span class="decision-badge">…</span>
+              </li>
+            </ul>
+          </article>
+
+          <!-- Support column -->
+          <article class="card" aria-label="Support permissions">
+            <h3 class="principal-name">Support</h3>
+            <ul class="permission-list" id="support-results" aria-live="polite">
+              <li class="permission-row loading" data-permission="cars.read">
+                <span class="permission-key">cars.read</span>
+                <span class="decision-badge">…</span>
+              </li>
+              <li class="permission-row loading" data-permission="cars.delete">
+                <span class="permission-key">cars.delete</span>
+                <span class="decision-badge">…</span>
+              </li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- ═══ Schedule awareness ═══ -->
+      <section aria-labelledby="schedule-heading">
+        <h2 id="schedule-heading">Schedule awareness</h2>
+        <p class="section-note">
+          A permission can be scoped to a recurring schedule (e.g., business
+          hours only). Mizan evaluates the schedule against the evaluation
+          timestamp and returns <code>outside-schedule</code> when the
+          current time falls outside the window.
+        </p>
+
+        <div class="schedule-demo" role="group" aria-label="Schedule demonstration">
+          <article class="card">
+            <h3 class="principal-name">Admin — schedules.read</h3>
+            <p class="schedule-label">
+              Granted Mon–Fri 09:00–17:00 UTC
+            </p>
+            <ul class="permission-list" id="schedule-results" aria-live="polite">
+              <li class="permission-row loading" data-label="Monday 10:00 UTC">
+                <span class="permission-key">Monday 10:00 UTC</span>
+                <span class="decision-badge">…</span>
+              </li>
+              <li class="permission-row loading" data-label="Sunday 10:00 UTC">
+                <span class="permission-key">Sunday 10:00 UTC</span>
+                <span class="decision-badge">…</span>
+              </li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p class="footer-explanation">
+        <strong>How it works:</strong> Adapters (like
+        <code>MemoryAdapter</code>) provide authorization facts — role
+        definitions, assignments, and principal-specific rules. The
+        <code>@mizan/core</code> engine collects those facts, evaluates them
+        against the requested permission, scope, temporal window, and
+        schedule, then returns a final <code>allow</code> or
+        <code>deny</code> with a stable reason code.
+        <em>Adapters provide facts; Mizan makes the final decision.</em>
+      </p>
+    </footer>
+
+    <script src="dist/main.js"></script>
+  </body>
+</html>
