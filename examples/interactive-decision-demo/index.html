@@ -18,17 +18,8 @@
     </header>
 
     <div class="layout">
-      <!-- ═══ Left sidebar ═══ -->
+      <!-- ═══ Left sidebar: Permissions, Trace, Policy ═══ -->
       <aside class="sidebar">
-        <!-- Current decision -->
-        <div id="current-decision" class="decision-banner" aria-live="polite" role="status" hidden>
-          <span class="decision-actor-label"></span>
-          <span class="decision-verb"></span>
-          <span class="decision-outcome"></span>
-          <span class="decision-reason"></span>
-        </div>
-
-        <!-- Current permissions -->
         <section class="trace-panel" aria-labelledby="perms-heading">
           <h2 id="perms-heading" class="section-title">Permissions</h2>
           <ul id="perm-summary" class="perm-summary" aria-live="polite">
@@ -36,7 +27,6 @@
           </ul>
         </section>
 
-        <!-- Decision trace -->
         <section class="trace-panel" aria-labelledby="trace-heading">
           <h2 id="trace-heading" class="section-title">Trace</h2>
           <div id="decision-trace" class="trace-content">
@@ -44,13 +34,11 @@
           </div>
         </section>
 
-        <!-- Policy controls -->
         <section id="policy-section" class="policy-panel" aria-labelledby="policy-heading">
           <h2 id="policy-heading" class="section-title">Policy editor</h2>
 
           <div id="policy-super-admin">
             <p class="policy-target-label">Managing in-memory policy for <strong>Support</strong></p>
-
             <div class="policy-block">
               <h3 class="policy-block-title">Direct grants</h3>
               <label class="policy-toggle" data-permission="update">
@@ -58,7 +46,6 @@
                 <span class="toggle-label">Grant <code>cars.update</code> to Support</span>
               </label>
             </div>
-
             <div class="policy-block">
               <h3 class="policy-block-title">Deny overrides</h3>
               <label class="policy-toggle" data-permission="delete-deny">
@@ -66,10 +53,9 @@
                 <span class="toggle-label">Add <code>cars.delete</code> deny override for Support</span>
               </label>
             </div>
-
             <div class="policy-block">
               <h3 class="policy-block-title">Temporal schedule</h3>
-              <p class="schedule-note">Hypothetical scenario: <code>reports.read</code> evaluated against a configurable schedule. No actual reports UI exists — this is a pure decision demonstration.</p>
+              <p class="schedule-note">Hypothetical: <code>reports.read</code> evaluated against a configurable schedule.</p>
               <label class="policy-toggle" data-permission="schedule">
                 <input type="checkbox" id="toggle-schedule" checked />
                 <span class="toggle-label">Enforce schedule on <code>reports.read</code></span>
@@ -97,9 +83,9 @@
                 <div class="clock-row">
                   <span id="clock-display" class="clock-time">—</span>
                   <div class="clock-buttons">
-                    <button id="clock-dec" class="clock-btn" type="button" title="Back 1 hour" aria-label="Back 1 hour">−1h</button>
-                    <button id="clock-inc" class="clock-btn" type="button" title="Forward 1 hour" aria-label="Forward 1 hour">+1h</button>
-                    <button id="clock-reset" class="clock-btn" type="button" title="Reset to initial" aria-label="Reset clock">reset</button>
+                    <button id="clock-dec" class="clock-btn" type="button">−1h</button>
+                    <button id="clock-inc" class="clock-btn" type="button">+1h</button>
+                    <button id="clock-reset" class="clock-btn" type="button">reset</button>
                   </div>
                 </div>
                 <div id="schedule-result" class="schedule-result">—</div>
@@ -122,7 +108,7 @@
         </section>
       </aside>
 
-      <!-- ═══ Main content ═══ -->
+      <!-- ═══ Main content: Controls, Decision, Table, How-it-works ═══ -->
       <main class="content">
         <section class="controls-bar" aria-label="Controls">
           <div class="control-group">
@@ -145,6 +131,14 @@
           </div>
         </section>
 
+        <!-- Decision strip (main column, directly below controls) -->
+        <div id="current-decision" class="decision-strip" aria-live="polite" role="status" hidden>
+          <span class="decision-actor-label"></span>
+          <span class="decision-verb"></span>
+          <span class="decision-outcome"></span>
+          <span class="decision-reason"></span>
+        </div>
+
         <div id="feedback" class="feedback" aria-live="polite" role="status"></div>
 
         <section class="table-section" aria-labelledby="cars-heading">
@@ -152,7 +146,6 @@
             <h2 id="cars-heading" class="section-title">Cars</h2>
             <button id="create-car-btn" class="btn-create" type="button">+&nbsp;Create</button>
           </div>
-          <!-- Inline create form (hidden by default, shown after allowed check) -->
           <div id="create-form" class="inline-form" hidden>
             <input type="text" id="create-make" class="inline-input" placeholder="Make (e.g. Tesla)" aria-label="Car make" />
             <input type="text" id="create-model" class="inline-input" placeholder="Model (e.g. Model 3)" aria-label="Car model" />
@@ -173,26 +166,33 @@
             </table>
           </div>
         </section>
+
+        <!-- Explanatory content in main column, below the table -->
+        <section class="how-it-works" aria-labelledby="how-heading">
+          <h2 id="how-heading" class="section-title">How Mizan decides</h2>
+          <div class="how-body">
+            <p>
+              <strong>Adapters provide facts; Mizan makes the final decision.</strong>
+              The <code>MemoryAdapter</code> and demo-only mutable sources supply
+              authorization facts — role definitions, assignments, and per-principal
+              overrides. <strong>@mizan/core</strong> collects those facts, evaluates
+              them against the requested permission, scope, temporal window, and
+              schedule, then returns an explainable <code>allow</code> or
+              <code>deny</code> with a stable reason code.
+            </p>
+            <p class="security-warning">
+              ⚠ <strong>Production security:</strong> Hiding or disabling a button
+              in the browser does <em>not</em> enforce authorization. Every protected
+              action in this demo calls the real Mizan <code>decide()</code> before
+              mutating state — the same pattern a production application
+              <strong>must repeat on its server or API boundary</strong>. The policy
+              editor modifies demo-only in-memory state and is not a real policy
+              administration interface.
+            </p>
+          </div>
+        </section>
       </main>
     </div>
-
-    <footer class="ledger-footer">
-      <div class="footer-content">
-        <p>
-          <strong>How it works:</strong> Adapters (<code>MemoryAdapter</code> + demo-only mutable sources) provide
-          authorization facts. <strong>@mizan/core</strong> evaluates them against the requested permission, scope,
-          temporal window, and schedule, then returns an explainable <code>allow</code> or <code>deny</code>.
-          <em>Adapters provide facts; Mizan makes the final decision.</em>
-        </p>
-        <p class="security-warning">
-          ⚠ <strong>Production security:</strong> Hiding or disabling a button in the browser does <em>not</em>
-          enforce authorization. Every protected action in this demo calls the real Mizan <code>decide()</code>
-          before mutating state — the same pattern a production application <strong>must repeat on its server or
-          API boundary</strong>. The policy editor modifies demo-only in-memory state and is not a real policy
-          administration interface.
-        </p>
-      </div>
-    </footer>
 
     <script src="dist/main.js"></script>
   </body>

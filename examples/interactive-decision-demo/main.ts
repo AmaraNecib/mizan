@@ -330,27 +330,28 @@ function showDecision(
 
 function clearDecision(): void {
   lastDecision = null;
-  updateDecisionBanner();
+  const strip = byId("current-decision");
+  strip.hidden = true;
   const trace = byId("decision-trace");
-  trace.innerHTML = `<p class="trace-placeholder">Switched to ${formatPrincipal(currentPrincipal)}. Attempt an action to see the decision trace.<\/p>`;
+  trace.innerHTML = `<p class="trace-placeholder">${formatPrincipal(currentPrincipal)} selected — attempt an action to see the decision trace.<\/p>`;
 }
 
 function updateDecisionBanner(): void {
-  const banner = byId("current-decision");
-  const labelEl = banner.querySelector(".decision-actor-label")!;
-  const verbEl = banner.querySelector(".decision-verb")!;
-  const outcomeEl = banner.querySelector(".decision-outcome")!;
-  const reasonEl = banner.querySelector(".decision-reason")!;
+  const strip = byId("current-decision");
+  const labelEl = strip.querySelector(".decision-actor-label")!;
+  const verbEl = strip.querySelector(".decision-verb")!;
+  const outcomeEl = strip.querySelector(".decision-outcome")!;
+  const reasonEl = strip.querySelector(".decision-reason")!;
 
   if (!lastDecision) {
-    banner.hidden = true;
+    strip.hidden = true;
     return;
   }
 
-  banner.hidden = false;
+  strip.hidden = false;
   const d = lastDecision;
   const isAllow = d.decision === "allow";
-  banner.className = `decision-banner result-${d.decision}`;
+  strip.className = `decision-strip result-${d.decision}`;
   labelEl.textContent = formatPrincipal(d.principal);
   verbEl.textContent = `· ${d.action} →`;
   outcomeEl.textContent = isAllow ? "ALLOW" : "DENY";
@@ -607,6 +608,7 @@ async function setPrincipal(id: PrincipalId): Promise<void> {
     el.style.display = el.dataset.actor === id ? "inline" : "none";
   });
 
+  closeActiveEditor();
   clearDecision();
   syncPolicyUI();
   await Promise.all([
@@ -965,5 +967,5 @@ document.addEventListener("DOMContentLoaded", () => {
   setPrincipal(currentPrincipal);
   updateClockDisplay();
   evaluateSchedule();
-  // Decision banner starts hidden — no stale state to clear.
+  // Decision strip starts hidden — no stale state.
 });
