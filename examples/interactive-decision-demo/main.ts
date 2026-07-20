@@ -50,6 +50,18 @@ let cars: Car[] = [
 ];
 let nextCarId = 4;
 
+// ─── ES2022-compatible findLastIndex ────────────────────────────────────────
+// Array.prototype.findLastIndex is ES2023; this polyfill keeps our target at ES2022.
+function polyfillFindLastIndex<T>(
+  arr: T[],
+  predicate: (item: T, index: number) => boolean,
+): number {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (predicate(arr[i]!, i)) return i;
+  }
+  return -1;
+}
+
 // ─── Mutable policy source ─────────────────────────────────────────────────
 
 class MutablePolicySource implements SourceResolver {
@@ -61,13 +73,24 @@ class MutablePolicySource implements SourceResolver {
     this.factsByPrincipal.set(principalId, facts);
   }
 
+  /** Remove the last fact whose permission matches (most recently added wins). */
   removeFact(principalId: string, permission: string): boolean {
     const facts = this.factsByPrincipal.get(principalId);
     if (!facts || facts.length === 0) return false;
-    const idx = facts.findLastIndex((f) => f.permission === permission);
+    const idx = polyfillFindLastIndex(facts, (f) => f.permission === permission);
     if (idx === -1) return false;
     facts.splice(idx, 1);
     return true;
+  }
+
+  /** Remove ALL facts matching a permission for a given principal. */
+  removeAllFacts(principalId: string, permission: string): void {
+    const facts = this.factsByPrincipal.get(principalId);
+    if (!facts || facts.length === 0) return;
+    this.factsByPrincipal.set(
+      principalId,
+      facts.filter((f) => f.permission !== permission),
+    );
   }
 
   hasFact(principalId: string, permission: string, effect?: "grant" | "deny"): boolean {
@@ -98,20 +121,9 @@ const adapter = new MemoryAdapter({
       permissions: [
         { permission: "cars.*", effect: "grant" },
         { permission: "manage-policy", effect: "grant" },
-        {
-          permission: "reports.read",
-          effect: "grant",
-          schedule: {
-            timezone: "UTC",
-            weeks: [
-              { day: "monday", times: [{ start: "09:00", end: "17:00" }] },
-              { day: "tuesday", times: [{ start: "09:00", end: "17:00" }] },
-              { day: "wednesday", times: [{ start: "09:00", end: "17:00" }] },
-              { day: "thursday", times: [{ start: "09:00", end: "17:00" }] },
-              { day: "friday", times: [{ start: "09:00", end: "17:00" }] },
-            ],
-          },
-        },
+        // NOTE: reports.read is NOT in the role definition.
+        // It is provided exclusively by the mutable policy source so the
+        // schedule editor is the single source of truth for that permission.
       ],
     },
     {
@@ -138,9 +150,15 @@ const adapter = new MemoryAdapter({
 
 useMemoryAdapter(mizan, adapter);
 
-// Policy source for Support's overrides and schedule bypass.
+// Policy source: provides Support overrides AND the sole reports.read fact.
 const policySource = new MutablePolicySource();
 policySource.addFact("support", { permission: "cars.delete", effect: "deny" });
+// Initial reports.read with the default schedule (will be overridden by UI).
+policySource.addFact("super-admin", {
+  permission: "reports.read",
+  effect: "grant",
+  schedule: makeWeekSchedule(9, 0, 17, 0),
+});
 
 mizan.registerSource("policy", policySource);
 
@@ -300,11 +318,11 @@ async function attemptManagement(onAllowed: () => void, label: string = "Policy 
     if (result.decision === "allow") {
       onAllowed();
       showFeedback("Policy change applied → re-evaluated", "success");
-      updateTrace("manage-policy", "allow", null, [`${actionLabel} — granted.`]);
+      updateTrace("manage-policy", "allow", null, [`${label} — granted.`]);
       return true;
     } else {
       showFeedback("Policy management denied — only Super Admin can manage policy", "error");
-      updateTrace("manage-policy", "deny", result.reason ?? "no-grant", [`${actionLabel} — blocked.`]);
+      updateTrace("manage-policy", "deny", result.reason ?? "no-grant", [`${label} — blocked.`]);
       return false;
     }
   } catch (err) {
@@ -491,44 +509,22 @@ function setupPolicyToggles(): void {
   });
 }
 
-// ─── Temporal schedule controls ────────────────────────────────────────────
+// ─── Schedule helpers ───────────────────────────────────────────────────────
 
-function buildSchedule(): RecurringSchedule | undefined {
-  if (!scheduleEnabled) return undefined;
-
-  const start = `${String(scheduleStartH).padStart(2, "0")}:${String(scheduleStartM).padStart(2, "0")}`;
-  const end = `${String(scheduleEndH).padStart(2, "0")}:${String(scheduleEndM).padStart(2, "0")}`;
-
+function makeWeekSchedule(sh: number, sm: number, eh: number, em: number): RecurringSchedule {
+  const start = `${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}`;
+  const end = `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+  const times = [{ start, end }];
   return {
     timezone: "UTC",
     weeks: [
-      { day: "monday", times: [{ start, end }] },
-      { day: "tuesday", times: [{ start, end }] },
-      { day: "wednesday", times: [{ start, end }] },
-      { day: "thursday", times: [{ start, end }] },
-      { day: "friday", times: [{ start, end }] },
+      { day: "monday", times },
+      { day: "tuesday", times },
+      { day: "wednesday", times },
+      { day: "thursday", times },
+      { day: "friday", times },
     ],
   };
-}
-
-// Update the scheduled fact in the policy source whenever schedule changes.
-function updateScheduleFact(): void {
-  // The role already has reports.read with the initial schedule.
-  // When schedule is disabled, add a grant without schedule to bypass it.
-  // When schedule is enabled, remove that bypass grant so the role's schedule applies.
-
-  if (scheduleEnabled) {
-    // Remove the bypass grant if present.
-    policySource.removeFact("super-admin", "reports.read.schedule-bypass");
-  } else {
-    // Add a bypass grant (no schedule) so reports.read is always allowed.
-    if (!policySource.hasFact("super-admin", "reports.read.schedule-bypass")) {
-      policySource.addFact("super-admin", {
-        permission: "reports.read",
-        effect: "grant",
-      });
-    }
-  }
 }
 
 function updateClockDisplay(): void {
@@ -536,50 +532,47 @@ function updateClockDisplay(): void {
   display.textContent = clockTime.toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
+/**
+ * Replace the sole reports.read fact with one matching the current controls.
+ *
+ * Because reports.read exists ONLY in the policy source (not in the role),
+ * changing the fact here is the single source of truth — no stale role grant
+ * can override the editor's hours.
+ */
 async function evaluateSchedule(): Promise<void> {
-  // Update the schedule fact to reflect current controls.
-  // Remove old scheduled fact and add new one with current hours.
-  // Since the role's schedule is static, we need to override it.
+  // Remove every reports.read fact for super-admin, then add the right one.
+  policySource.removeAllFacts("super-admin", "reports.read");
 
-  // Build the current schedule from controls.
-  const schedule = buildSchedule();
-
-  // Remove old trial scheduled fact.
-  policySource.removeFact("super-admin", "reports.read.scheduled-trial");
-
-  if (scheduleEnabled && schedule) {
-    // Add a trial fact with the current schedule so it takes precedence.
+  if (scheduleEnabled) {
     policySource.addFact("super-admin", {
       permission: "reports.read",
       effect: "grant",
-      schedule,
+      schedule: makeWeekSchedule(scheduleStartH, scheduleStartM, scheduleEndH, scheduleEndM),
+    });
+  } else {
+    // No schedule = unrestricted grant.
+    policySource.addFact("super-admin", {
+      permission: "reports.read",
+      effect: "grant",
     });
   }
 
-  // Clear the bypass if schedule is enabled (trial fact will enforce it).
-  // If schedule is disabled, add bypass (already handled in updateScheduleFact).
-
-  if (scheduleEnabled) {
-    policySource.removeFact("super-admin", "reports.read.schedule-bypass");
-  } else {
-    if (!policySource.hasFact("super-admin", "reports.read.schedule-bypass")) {
-      policySource.addFact("super-admin", {
-        permission: "reports.read",
-        effect: "grant",
-      });
-    }
-  }
-
-  // Evaluate.
+  // Evaluate at the clock time.
   const evalSA = getEvaluator("super-admin");
   try {
     const result = await evalSA.decide("reports.read", { at: clockTime });
     const el = byId("schedule-result");
     const isAllow = result.decision === "allow";
     el.className = `schedule-result ${isAllow ? "allow" : "deny"}`;
-    el.textContent = isAllow
-      ? "✓ reports.read allowed (inside schedule)"
-      : `✗ reports.read denied (${result.reason ?? "unknown"})`;
+    let label: string;
+    if (isAllow) {
+      label = scheduleEnabled
+        ? "✓ reports.read allowed (inside schedule)"
+        : "✓ reports.read allowed (no schedule restriction)";
+    } else {
+      label = `✗ reports.read denied (${result.reason ?? "unknown"})`;
+    }
+    el.textContent = label;
   } catch {
     byId("schedule-result").textContent = "Error evaluating schedule";
   }

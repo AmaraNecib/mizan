@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "cd ../.. && bun build examples/interactive-decision-demo/main.ts --outdir=examples/interactive-decision-demo/dist",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "bun run build && bunx --bun serve ."
   },
   "dependencies": {
     "@mizan/core": "workspace:*",

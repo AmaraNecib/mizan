@@ -7,12 +7,22 @@ explain **why** — all through real `@mizan/core` + `@mizan/memory` evaluations
 ## Quick start
 
 ```bash
+# 1. Install dependencies (from repository root)
 bun install
+
+# 2. Build the demo
 cd examples/interactive-decision-demo
 bun run build
-# Serve with any HTTP server
+
+# 3. Serve over HTTP — opening index.html via file:// will NOT work
+#    because the browser enforces CORS on ES-module-style bundler output.
+#    Use any static server:
 bunx serve .
+#    or: npx http-server .
+#    or: bunx http-server .
 ```
+
+Then open **http://localhost:3000** (or whatever port your server uses) in a browser.
 
 ## What it demonstrates
 
