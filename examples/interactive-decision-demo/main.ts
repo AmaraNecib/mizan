@@ -277,7 +277,7 @@ let nextCarId = 4;
 // ─── Restore persisted state ───────────────────────────────────────────────
 
 const saved = loadSavedState();
-if (saved) {
+if (saved && Array.isArray(saved.cars)) {
   cars = saved.cars;
   nextCarId = saved.nextCarId;
   currentPrincipal = saved.principal;
@@ -288,6 +288,9 @@ if (saved) {
   scheduleEndH = saved.scheduleEndH;
   scheduleEndM = saved.scheduleEndM;
   clockTime = new Date(saved.clockTime);
+  if (isNaN(clockTime.getTime())) {
+    clockTime = new Date(INITIAL_CLOCK);
+  }
   restorePolicyFactsFromSaved(saved);
 } else {
   applyDefaultPolicyFacts();
@@ -705,10 +708,11 @@ function setupScheduleControls(): void {
         setter(Number(input.value));
       }, "Adjust schedule hours");
       if (!granted) {
+        const isHour = !input.classList.contains("minute");
         input.value = String(
           id.includes("start")
-            ? (id.includes("h") ? scheduleStartH : scheduleStartM)
-            : (id.includes("h") ? scheduleEndH : scheduleEndM),
+            ? (isHour ? scheduleStartH : scheduleStartM)
+            : (isHour ? scheduleEndH : scheduleEndM),
         );
         return;
       }
