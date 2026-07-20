@@ -1,60 +1,63 @@
-# Interactive Authorization Decision Gallery
+# Authorization Decision Ledger
 
-This example demonstrates how Mizan's authorization decision layer works
-through an interactive cars table. Switch the active principal between
-Admin and Support, toggle demo-only policy controls for Support, and
-watch how the same protected actions resolve differently — all through
-real `@mizan/core` + `@mizan/memory` evaluations.
+An interactive authorization playground demonstrating Mizan's decision layer.
+Switch between three principals, observe how protected actions resolve, and
+explain **why** — all through real `@mizan/core` + `@mizan/memory` evaluations.
 
-## Run
+## Quick start
 
 ```bash
-# From the repository root
 bun install
 cd examples/interactive-decision-demo
 bun run build
+# Serve with any HTTP server
+bunx serve .
 ```
 
-Then open `index.html` in your browser (or serve with any HTTP server).
+## What it demonstrates
 
-## What it shows
-
-| Feature | Description |
-|---------|-------------|
-| **Principal switcher** | Toggle between Admin and Support — table action buttons update from real Mizan decisions. |
-| **Cars table** | Read, Create (via button), Update, and Delete actions on an in-memory car list. |
-| **Protected action path** | Every click performs `decide()` through Mizan before mutating the table. |
-| **Presentation mode** | Denied actions can be shown disabled (with reason badge) or hidden entirely. |
-| **Policy controls (Support)** | Toggle a `cars.update` grant and a `cars.delete` deny override in real time — the table re-evaluates without a page reload. |
-| **Schedule demo** | A permission restricted to Mon–Fri business hours, evaluated at two different times. |
+| Concept | Implementation |
+|---------|---------------|
+| **Three principals** | Super Admin (full access + policy management), Admin (full cars access), Support (restricted) |
+| **Protected actions** | Every cars-table click calls `decide()` through Mizan before mutating state |
+| **Denial reasons** | `matching-denial` for the delete override, `no-grant` for missing update permission |
+| **Decision banner** | Current decision shown above the fold: actor, action, ALLOW/DENY, reason |
+| **Decision trace** | Running log of every evaluation, visible below the table |
+| **Policy editor** | Super Admin only — grant/revoke Support's update, add/remove delete-deny override |
+| **Temporal schedule** | Configurable business hours with controllable evaluation clock; `outside-schedule` when outside |
+| **Presentation mode** | Denied table actions shown disabled with reason, or hidden entirely |
+| **Security disclaimer** | Explicit statement that UI toggles don't enforce — production must check server-side |
 
 ## Permission matrix
 
-| Permission | Admin | Support (initial) | Support (+grant) | Support (-deny) |
-|------------|-------|-------------------|------------------|-----------------|
-| `cars.read` | ✅ allow | ✅ allow | ✅ allow | ✅ allow |
-| `cars.create` | ✅ allow | ✅ allow | ✅ allow | ✅ allow |
-| `cars.update` | ✅ allow | ❌ no-grant | ✅ allow | ❌ no-grant |
-| `cars.delete` | ✅ allow | ❌ matching-denial | ❌ matching-denial | ✅ allow |
+| Permission | Super Admin | Admin | Support |
+|-----------|-------------|-------|---------|
+| `cars.read` | ✅ | ✅ | ✅ |
+| `cars.create` | ✅ | ✅ | ✅ |
+| `cars.update` | ✅ | ✅ | ❌ `no-grant` |
+| `cars.delete` | ✅ | ✅ | ❌ `matching-denial` |
+| `manage-policy` | ✅ | ❌ `no-grant` | ❌ `no-grant` |
+| `reports.read` | ✅ (schedule) | ❌ `no-grant` | ❌ `no-grant` |
 
-## How it maps to a real application
+## How the schedule works
 
-In a production system:
-
-- The **MemoryAdapter** would be replaced by a database adapter storing
-  role definitions and assignments.
-- The **policy source** would be an exceptions table or a policy-as-code
-  engine.
-- The **UI toggles** would be an admin interface backed by a real database,
-  not in-memory state.
-- Most importantly: every protected API endpoint or server action would
-  **repeat the Mizan check** before performing the operation. UI toggles
-  are for UX only — the server is the enforcement boundary.
+Super Admin can enable/disable the schedule restriction on `reports.read` and
+adjust the UTC business-hours window. A controllable evaluation clock advances
+or rewinds time — within hours the permission allows, outside it returns
+`outside-schedule`. Admin and Support cannot modify these settings.
 
 ## Stack
 
-- Plain TypeScript + semantic HTML + CSS (no React, Vite, TanStack)
+- Plain TypeScript + semantic HTML + CSS (no React, Vite, TanStack, UI kit)
 - `bun build` for compilation
-- `@mizan/core` for authorization evaluation
+- `@mizan/core` for all authorization evaluation
 - `@mizan/memory` MemoryAdapter for role-based grants
 - Custom `MutablePolicySource` for runtime policy controls
+
+## Production caveat
+
+This demo's policy editor modifies **in-memory state only**. A production
+application would:
+1. Store policy in a database or policy-as-code engine
+2. Repeat every Mizan `decide()` call on the server or API boundary
+3. Never rely on UI hiding or disabling for enforcement
