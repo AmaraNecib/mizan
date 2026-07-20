@@ -328,6 +328,13 @@ function showDecision(
   updateDecisionBanner();
 }
 
+function clearDecision(): void {
+  lastDecision = null;
+  updateDecisionBanner();
+  const trace = byId("decision-trace");
+  trace.innerHTML = `<p class="trace-placeholder">Switched to ${formatPrincipal(currentPrincipal)}. Attempt an action to see the decision trace.<\/p>`;
+}
+
 function updateDecisionBanner(): void {
   const banner = byId("current-decision");
   const labelEl = banner.querySelector(".decision-actor-label")!;
@@ -571,6 +578,9 @@ function setPrincipal(id: PrincipalId): void {
     el.style.display = el.dataset.actor === id ? "inline" : "none";
   });
 
+  // Clear stale decision banner and trace on switch.
+  clearDecision();
+
   syncPolicyUI();
   renderTable();
 }
@@ -783,6 +793,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   byId<HTMLButtonElement>("create-car-btn").addEventListener("click", onCreateCar);
+
+  byId<HTMLButtonElement>("reset-demo-btn").addEventListener("click", () => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    location.reload();
+  });
 
   setupPolicyToggles();
   setupScheduleControls();

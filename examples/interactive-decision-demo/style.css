@@ -229,6 +229,34 @@ body {
 /* ─── Table section ─────────────────────────────────────────────────── */
 .table-section { margin-bottom: var(--space-xl); }
 
+.control-group--reset {
+  margin-left: auto;
+}
+
+.btn-reset {
+  padding: 0.3rem 0.7rem;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid var(--paper-border);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.btn-reset:hover {
+  background: var(--deny-soft);
+  border-color: var(--deny);
+  color: var(--deny);
+}
+
+.btn-reset:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .section-row {
   display: flex;
   align-items: center;
