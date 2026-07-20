@@ -23,6 +23,19 @@ Do not merge until all three pass. Do not assume CodeRabbit auto-triggered — i
 - To undo a merge: create a revert branch, push, open a PR, merge that PR.
 - Faster: just create a new PR with the fix rather than reverting and re-applying.
 
+## Bun workspace dependencies and bun build
+
+- `bun build` (the bundler) does not resolve `workspace:*` protocol deps when run
+  from a workspace member's directory. The bundled entry points import from
+  package names that aren't resolved.
+- **Fix**: either (a) run `bun build` from the repo root with relative entry
+  paths, or (b) use the `--cwd` trick: `cd <relative-to-root> && bun build ...`
+  from the workspace member's build script. The latter keeps the build script
+  self-documenting in the member's `package.json`.
+- Also ensure `bun.lock` uses `workspace:*` (not `file:`) references for
+  workspace members — `file:` creates nested lockfile entries that break
+  frozen-lockfile CI.
+
 ## Commit message format
 
 ```text

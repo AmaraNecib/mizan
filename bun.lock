@@ -8,6 +8,17 @@
         "typescript": "^5.7.3",
       },
     },
+    "examples/interactive-decision-demo": {
+      "name": "@mizan/interactive-decision-demo",
+      "version": "0.1.0",
+      "dependencies": {
+        "@mizan/core": "workspace:*",
+        "@mizan/memory": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.3",
+      },
+    },
     "packages/core": {
       "name": "@mizan/core",
       "version": "0.1.0",
@@ -43,6 +54,8 @@
   ],
   "packages": {
     "@mizan/core": ["@mizan/core@workspace:packages/core"],
+
+    "@mizan/interactive-decision-demo": ["@mizan/interactive-decision-demo@workspace:examples/interactive-decision-demo"],
 
     "@mizan/memory": ["@mizan/memory@workspace:packages/memory"],
 
