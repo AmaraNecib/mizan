@@ -348,7 +348,7 @@ function updateDecisionBanner(): void {
   const isAllow = d.decision === "allow";
   banner.className = `decision-banner result-${d.decision}`;
   labelEl.textContent = formatPrincipal(d.principal);
-  verbEl.textContent = `\u00b7 ${d.action} \u2192`;
+  verbEl.textContent = `· ${d.action} →`;
   outcomeEl.textContent = isAllow ? "ALLOW" : "DENY";
   reasonEl.textContent = d.reason ? d.reason : "";
 }
@@ -376,7 +376,7 @@ function updateTrace(
   const isAllow = decision === "allow";
   entry.innerHTML = `
     <span class="trace-permission">${action}</span>
-    <span class="trace-result trace-result--${decision}">${isAllow ? "\u2713 allow" : "\u2717 deny"}</span>
+    <span class="trace-result trace-result--${decision}">${isAllow ? "✓ allow" : "✗ deny"}</span>
     ${reason ? `<span class="trace-reason">${reason}</span>` : ""}
     ${details ? details.map((d) => `<div class="trace-detail">${d}</div>`).join("") : ""}
   `;
@@ -397,23 +397,22 @@ async function attemptAction(action: CarAction, onAllowed: () => void): Promise<
 
     if (result.decision === "allow") {
       onAllowed();
-      showFeedback(`\u201c${action}\u201d \u2192 allowed`, "success");
+      showFeedback(`"${action}" → allowed`, "success");
       updateTrace(action, "allow", null, [
         `Principal: ${formatPrincipal(currentPrincipal)}`,
         "Grant from role or policy source matched.",
       ]);
     } else {
       const reason = result.reason ?? "unknown";
-      showFeedback(`\u201c${action}\u201d \u2192 denied (${reason})`, "error");
+      showFeedback(`"${action}" → denied (${reason})`, "error");
       updateTrace(action, "deny", reason, [
         `Principal: ${formatPrincipal(currentPrincipal)}`,
         `Denial reason: ${reason}.`,
       ]);
     }
-  } catch (err) {
-    showFeedback(`Error checking \u201c${action}\u201d`, "error");
+  } catch {
+    showFeedback(`${action} check failed`, "error");
   }
-  saveState();
   await renderTable();
 }
 
@@ -430,17 +429,17 @@ async function attemptManagement(
 
     if (result.decision === "allow") {
       onAllowed();
-      showFeedback("Policy change applied \u2192 re-evaluated", "success");
-      updateTrace("manage-policy", "allow", null, [`${label} \u2014 granted.`]);
+      showFeedback("Policy change applied → re-evaluated", "success");
+      updateTrace("manage-policy", "allow", null, [`${label} — granted.`]);
       saveState();
       return true;
     } else {
-      showFeedback("Policy management denied \u2014 only Super Admin can manage policy", "error");
-      updateTrace("manage-policy", "deny", result.reason ?? "no-grant", [`${label} \u2014 blocked.`]);
+      showFeedback("Policy management denied — only Super Admin can manage policy", "error");
+      updateTrace("manage-policy", "deny", result.reason ?? "no-grant", [`${label} — blocked.`]);
       return false;
     }
-  } catch (err) {
-    showFeedback("Error checking manage-policy", "error");
+  } catch {
+    showFeedback("Policy check failed", "error");
     return false;
   }
 }
@@ -673,9 +672,9 @@ async function evaluateSchedule(): Promise<void> {
     el.className = `schedule-result ${isAllow ? "allow" : "deny"}`;
     el.textContent = isAllow
       ? scheduleEnabled
-        ? "\u2713 reports.read allowed (inside schedule)"
-        : "\u2713 reports.read allowed (no schedule restriction)"
-      : `\u2717 reports.read denied (${result.reason ?? "unknown"})`;
+        ? "✓ reports.read allowed (inside schedule)"
+        : "✓ reports.read allowed (no schedule restriction)"
+      : `✗ reports.read denied (${result.reason ?? "unknown"})`;
   } catch {
     byId("schedule-result").textContent = "Error evaluating schedule";
   }
