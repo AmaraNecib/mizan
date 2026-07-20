@@ -15,45 +15,69 @@
     </header>
 
     <main>
-      <!-- ═══ Role-based comparison ═══ -->
-      <section aria-labelledby="comparison-heading">
-        <h2 id="comparison-heading">Role-based permissions</h2>
+      <!-- ═══ Principal & presentation controls ═══ -->
+      <section aria-labelledby="controls-heading" class="toolbar">
+        <div class="toolbar-row">
+          <span class="toolbar-label">Active principal:</span>
+          <div class="btn-group" role="group" aria-label="Switch principal">
+            <button class="principal-btn active" data-principal="admin" type="button">Admin</button>
+            <button class="principal-btn" data-principal="support" type="button">Support</button>
+          </div>
+        </div>
+        <div class="toolbar-row">
+          <span class="toolbar-label">Denied actions:</span>
+          <div class="btn-group" role="group" aria-label="Presentation mode">
+            <button class="mode-btn active" data-mode="disabled" type="button">Show disabled</button>
+            <button class="mode-btn" data-mode="hide" type="button">Hide</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ Feedback ═══ -->
+      <div id="feedback" class="feedback" aria-live="polite" role="status"></div>
+
+      <!-- ═══ Cars table ═══ -->
+      <section aria-labelledby="cars-heading">
+        <div class="section-header">
+          <h2 id="cars-heading">Cars</h2>
+          <button id="create-car-btn" class="btn-create" type="button">+ Create Car</button>
+        </div>
+        <div class="table-wrap">
+          <table id="cars-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Make</th>
+                <th scope="col">Model</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="cars-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ═══ Policy controls (Support only) ═══ -->
+      <section id="policy-controls" aria-labelledby="policy-heading" hidden>
+        <h2 id="policy-heading">Demo-only policy controls</h2>
         <p class="section-note">
-          Each principal is assigned a role. The memory adapter resolves
-          role-derived grants; a second source provides a principal-specific
-          denial. Mizan evaluates all facts and makes the final decision.
+          These controls modify the in-memory authorization state for
+          <strong>Support</strong> in real time. Each change triggers a fresh
+          Mizan evaluation — no page reload required.
         </p>
-
-        <div class="comparison" role="group" aria-label="Principal comparison">
-          <!-- Admin column -->
-          <article class="card" aria-label="Admin permissions">
-            <h3 class="principal-name">Admin</h3>
-            <ul class="permission-list" id="admin-results" aria-live="polite">
-              <li class="permission-row loading" data-permission="cars.read">
-                <span class="permission-key">cars.read</span>
-                <span class="decision-badge">…</span>
-              </li>
-              <li class="permission-row loading" data-permission="cars.delete">
-                <span class="permission-key">cars.delete</span>
-                <span class="decision-badge">…</span>
-              </li>
-            </ul>
-          </article>
-
-          <!-- Support column -->
-          <article class="card" aria-label="Support permissions">
-            <h3 class="principal-name">Support</h3>
-            <ul class="permission-list" id="support-results" aria-live="polite">
-              <li class="permission-row loading" data-permission="cars.read">
-                <span class="permission-key">cars.read</span>
-                <span class="decision-badge">…</span>
-              </li>
-              <li class="permission-row loading" data-permission="cars.delete">
-                <span class="permission-key">cars.delete</span>
-                <span class="decision-badge">…</span>
-              </li>
-            </ul>
-          </article>
+        <div class="policy-toggles">
+          <label class="policy-toggle">
+            <input type="checkbox" id="toggle-update-grant" />
+            <span>Grant direct <code>cars.update</code> to Support</span>
+          </label>
+          <label class="policy-toggle">
+            <input type="checkbox" id="toggle-delete-deny" checked />
+            <span>Add <code>cars.delete</code> deny override for Support</span>
+          </label>
+        </div>
+        <div class="policy-effects" id="policy-effects">
+          <p class="effect-label">Current effect:</p>
+          <ul class="effect-list" id="effect-list"></ul>
         </div>
       </section>
 
@@ -61,18 +85,14 @@
       <section aria-labelledby="schedule-heading">
         <h2 id="schedule-heading">Schedule awareness</h2>
         <p class="section-note">
-          A permission can be scoped to a recurring schedule (e.g., business
-          hours only). Mizan evaluates the schedule against the evaluation
-          timestamp and returns <code>outside-schedule</code> when the
-          current time falls outside the window.
+          A permission can be restricted to a recurring schedule (e.g.,
+          business hours). Mizan returns <code>outside-schedule</code> when
+          the evaluation time falls outside the window.
         </p>
-
         <div class="schedule-demo" role="group" aria-label="Schedule demonstration">
           <article class="card">
-            <h3 class="principal-name">Admin — schedules.read</h3>
-            <p class="schedule-label">
-              Granted Mon–Fri 09:00–17:00 UTC
-            </p>
+            <h3 class="card-title">Admin — <code>reports.read</code> with schedule</h3>
+            <p class="schedule-label">Granted Mon–Fri 09:00–17:00 UTC</p>
             <ul class="permission-list" id="schedule-results" aria-live="polite">
               <li class="permission-row loading" data-label="Monday 10:00 UTC">
                 <span class="permission-key">Monday 10:00 UTC</span>
@@ -89,16 +109,27 @@
     </main>
 
     <footer>
-      <p class="footer-explanation">
-        <strong>How it works:</strong> Adapters (like
-        <code>MemoryAdapter</code>) provide authorization facts — role
-        definitions, assignments, and principal-specific rules. The
-        <code>@mizan/core</code> engine collects those facts, evaluates them
-        against the requested permission, scope, temporal window, and
-        schedule, then returns a final <code>allow</code> or
-        <code>deny</code> with a stable reason code.
-        <em>Adapters provide facts; Mizan makes the final decision.</em>
-      </p>
+      <div class="footer-explanation">
+        <p>
+          <strong>How it works:</strong> Adapters (like
+          <code>MemoryAdapter</code>) provide authorization facts — role
+          definitions, assignments, and principal-specific rules. The
+          <code>@mizan/core</code> engine collects those facts, evaluates
+          them against the requested permission, scope, temporal window,
+          and schedule, then returns a final <code>allow</code> or
+          <code>deny</code> with a stable reason code.
+          <em>Adapters provide facts; Mizan makes the final decision.</em>
+        </p>
+        <p class="security-warning">
+          ⚠ <strong>UI toggles are a demonstration only.</strong> Hiding or
+          disabling a button in the browser does <em>not</em> enforce
+          authorization. A production application
+          <strong>must repeat every protected check on its server or API
+          boundary</strong> using Mizan or an equivalent authorization layer.
+          The policy controls shown here modify only the demo's in-memory
+          state — they are not a real policy administration interface.
+        </p>
+      </div>
     </footer>
 
     <script src="dist/main.js"></script>

@@ -1,8 +1,10 @@
 # Interactive Authorization Decision Gallery
 
-This example demonstrates how Mizan's authorization decision layer works in a
-browser environment. It compares two principals (Admin and Support) side by
-side using the real `@mizan/core` and `@mizan/memory` packages.
+This example demonstrates how Mizan's authorization decision layer works
+through an interactive cars table. Switch the active principal between
+Admin and Support, toggle demo-only policy controls for Support, and
+watch how the same protected actions resolve differently — all through
+real `@mizan/core` + `@mizan/memory` evaluations.
 
 ## Run
 
@@ -13,56 +15,46 @@ cd examples/interactive-decision-demo
 bun run build
 ```
 
-Then open `index.html` in your browser (or serve it):
-
-```bash
-# e.g. with Python
-python -m http.server 8080
-# or with Bun
-bunx serve .
-```
+Then open `index.html` in your browser (or serve with any HTTP server).
 
 ## What it shows
 
-| Principal | Permission       | Result | Reason              | Source                       |
-|-----------|-----------------|--------|---------------------|-----------------------------|
-| Admin     | `cars.read`     | allow  | —                   | Admin role (`memory`)       |
-| Admin     | `cars.delete`   | allow  | —                   | Admin role (`memory`)       |
-| Support   | `cars.read`     | allow  | —                   | Support role (`memory`)     |
-| Support   | `cars.delete`   | deny   | `matching-denial`   | Denials source (custom)     |
-| Admin     | `schedules.read`| allow  | — (Monday 10:00)    | Role with schedule          |
-| Admin     | `schedules.read`| deny   | `outside-schedule`  | Role with schedule (Sunday) |
+| Feature | Description |
+|---------|-------------|
+| **Principal switcher** | Toggle between Admin and Support — table action buttons update from real Mizan decisions. |
+| **Cars table** | Read, Create (via button), Update, and Delete actions on an in-memory car list. |
+| **Protected action path** | Every click performs `decide()` through Mizan before mutating the table. |
+| **Presentation mode** | Denied actions can be shown disabled (with reason badge) or hidden entirely. |
+| **Policy controls (Support)** | Toggle a `cars.update` grant and a `cars.delete` deny override in real time — the table re-evaluates without a page reload. |
+| **Schedule demo** | A permission restricted to Mon–Fri business hours, evaluated at two different times. |
+
+## Permission matrix
+
+| Permission | Admin | Support (initial) | Support (+grant) | Support (-deny) |
+|------------|-------|-------------------|------------------|-----------------|
+| `cars.read` | ✅ allow | ✅ allow | ✅ allow | ✅ allow |
+| `cars.create` | ✅ allow | ✅ allow | ✅ allow | ✅ allow |
+| `cars.update` | ✅ allow | ❌ no-grant | ✅ allow | ❌ no-grant |
+| `cars.delete` | ✅ allow | ❌ matching-denial | ❌ matching-denial | ✅ allow |
 
 ## How it maps to a real application
 
-In a real app, the memory adapter would be replaced by a database-backed
-adapter that stores roles, assignments, and per-user overrides. The "denials"
-source might be a separate table for exceptions. The core evaluation logic
-remains the same — adapters provide facts, Mizan makes the final decision.
+In a production system:
 
-## Architecture
+- The **MemoryAdapter** would be replaced by a database adapter storing
+  role definitions and assignments.
+- The **policy source** would be an exceptions table or a policy-as-code
+  engine.
+- The **UI toggles** would be an admin interface backed by a real database,
+  not in-memory state.
+- Most importantly: every protected API endpoint or server action would
+  **repeat the Mizan check** before performing the operation. UI toggles
+  are for UX only — the server is the enforcement boundary.
 
-```
-┌─────────────┐     facts      ┌──────────────────┐
-│ MemoryAdapter│ ─────────────→ │                  │
-│ (roles,     │               │  @mizan/core      │ ←── decide("cars.read")
-│ assignments)│               │  (evaluate)       │
-└─────────────┘               │                  │ → AuthorizationResult
-                              │                  │
-┌─────────────┐               │                  │
-│ Denials src │ ─────────────→ │                  │
-│ (override)  │    facts      └──────────────────┘
-└─────────────┘
-```
+## Stack
 
-## Constraints met
-
-- ✅ Plain TypeScript, semantic HTML, CSS — no React, TanStack, Vite
-- ✅ Uses `bun build` for compilation
-- ✅ Calls real `@mizan/core` + `@mizan/memory` packages
-- ✅ Admin and Support side by side with same permissions checked
-- ✅ `cars.read` allows for both
-- ✅ `cars.delete` allows Admin, denies Support with `matching-denial`
-- ✅ Schedule scenario showing `outside-schedule`
-- ✅ No SQLite, ORM, auth, JWT, caching, guards, network calls, or fallback
-- ✅ No duplicated authorization logic in UI code
+- Plain TypeScript + semantic HTML + CSS (no React, Vite, TanStack)
+- `bun build` for compilation
+- `@mizan/core` for authorization evaluation
+- `@mizan/memory` MemoryAdapter for role-based grants
+- Custom `MutablePolicySource` for runtime policy controls
