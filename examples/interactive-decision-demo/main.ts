@@ -9,6 +9,9 @@
  * Only Super Admin can modify the in-memory policy (checked through a
  * real Mizan "manage-policy" decision). Every protected action on the
  * cars table and every policy mutation goes through decide() first.
+ *
+ * State is persisted in localStorage so page refreshes don't lose data
+ * as long as the server stays up.
  */
 
 import { createMizan } from "@mizan/core";
@@ -41,17 +44,59 @@ interface DecisionRecord {
   timestamp: Date;
 }
 
-// ─── Car data ───────────────────────────────────────────────────────────────
+interface SavedState {
+  cars: Car[];
+  nextCarId: number;
+  updateGrant: boolean;
+  deleteDeny: boolean;
+  scheduleEnabled: boolean;
+  scheduleStartH: number;
+  scheduleStartM: number;
+  scheduleEndH: number;
+  scheduleEndM: number;
+  clockTime: string;
+  principal: PrincipalId;
+  mode: PresentationMode;
+}
 
-let cars: Car[] = [
-  { id: 1, make: "Toyota", model: "Camry" },
-  { id: 2, make: "Honda", model: "Civic" },
-  { id: 3, make: "Ford", model: "Focus" },
-];
-let nextCarId = 4;
+// ─── localStorage persistence ───────────────────────────────────────────────
+
+const STORAGE_KEY = "mizan52.state";
+
+function saveState(): void {
+  const data: SavedState = {
+    cars,
+    nextCarId,
+    updateGrant: policySource.hasFact("support", "cars.update", "grant"),
+    deleteDeny: policySource.hasFact("support", "cars.delete", "deny"),
+    scheduleEnabled,
+    scheduleStartH,
+    scheduleStartM,
+    scheduleEndH,
+    scheduleEndM,
+    clockTime: clockTime.toISOString(),
+    principal: currentPrincipal,
+    mode: presentationMode,
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    /* storage full or unavailable — degrade silently */
+  }
+}
+
+function loadSavedState(): SavedState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as SavedState) : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── ES2022-compatible findLastIndex ────────────────────────────────────────
-// Array.prototype.findLastIndex is ES2023; this polyfill keeps our target at ES2022.
+// Array.prototype.findLastIndex is ES2023; this polyfill keeps target at ES2022.
+
 function polyfillFindLastIndex<T>(
   arr: T[],
   predicate: (item: T, index: number) => boolean,
@@ -122,8 +167,8 @@ const adapter = new MemoryAdapter({
         { permission: "cars.*", effect: "grant" },
         { permission: "manage-policy", effect: "grant" },
         // NOTE: reports.read is NOT in the role definition.
-        // It is provided exclusively by the mutable policy source so the
-        // schedule editor is the single source of truth for that permission.
+        // It lives solely in the mutable policy source so the schedule
+        // editor is the single source of truth for that permission.
       ],
     },
     {
@@ -150,15 +195,46 @@ const adapter = new MemoryAdapter({
 
 useMemoryAdapter(mizan, adapter);
 
-// Policy source: provides Support overrides AND the sole reports.read fact.
+// Policy source: Support overrides + sole reports.read.
 const policySource = new MutablePolicySource();
-policySource.addFact("support", { permission: "cars.delete", effect: "deny" });
-// Initial reports.read with the default schedule (will be overridden by UI).
-policySource.addFact("super-admin", {
-  permission: "reports.read",
-  effect: "grant",
-  schedule: makeWeekSchedule(9, 0, 17, 0),
-});
+
+function applyDefaultPolicyFacts(): void {
+  policySource.addFact("support", { permission: "cars.delete", effect: "deny" });
+  policySource.addFact("super-admin", {
+    permission: "reports.read",
+    effect: "grant",
+    schedule: makeWeekSchedule(9, 0, 17, 0),
+  });
+}
+
+function restorePolicyFactsFromSaved(saved: SavedState): void {
+  // Wipe dynamic facts for the two principals we manage.
+  policySource.removeAllFacts("support", "cars.delete");
+  policySource.removeAllFacts("support", "cars.update");
+  policySource.removeAllFacts("super-admin", "reports.read");
+
+  if (saved.deleteDeny) {
+    policySource.addFact("support", { permission: "cars.delete", effect: "deny" });
+  }
+  if (saved.updateGrant) {
+    policySource.addFact("support", { permission: "cars.update", effect: "grant" });
+  }
+  if (saved.scheduleEnabled) {
+    policySource.addFact("super-admin", {
+      permission: "reports.read",
+      effect: "grant",
+      schedule: makeWeekSchedule(
+        saved.scheduleStartH, saved.scheduleStartM,
+        saved.scheduleEndH, saved.scheduleEndM,
+      ),
+    });
+  } else {
+    policySource.addFact("super-admin", {
+      permission: "reports.read",
+      effect: "grant",
+    });
+  }
+}
 
 mizan.registerSource("policy", policySource);
 
@@ -180,16 +256,42 @@ let currentPrincipal: PrincipalId = "super-admin";
 let presentationMode: PresentationMode = "disabled";
 let lastDecision: DecisionRecord | null = null;
 
-// Schedule state.
 let scheduleEnabled = true;
 let scheduleStartH = 9;
 let scheduleStartM = 0;
 let scheduleEndH = 17;
 let scheduleEndM = 0;
 
-// Evaluation clock (for the temporal schedule demo).
 const INITIAL_CLOCK = new Date("2024-06-17T10:00:00Z");
 let clockTime = new Date(INITIAL_CLOCK);
+
+// Car data — defaults, then potentially overwritten by saved state below.
+const DEFAULT_CARS: Car[] = [
+  { id: 1, make: "Toyota", model: "Camry" },
+  { id: 2, make: "Honda", model: "Civic" },
+  { id: 3, make: "Ford", model: "Focus" },
+];
+let cars: Car[] = [...DEFAULT_CARS];
+let nextCarId = 4;
+
+// ─── Restore persisted state ───────────────────────────────────────────────
+
+const saved = loadSavedState();
+if (saved) {
+  cars = saved.cars;
+  nextCarId = saved.nextCarId;
+  currentPrincipal = saved.principal;
+  presentationMode = saved.mode;
+  scheduleEnabled = saved.scheduleEnabled;
+  scheduleStartH = saved.scheduleStartH;
+  scheduleStartM = saved.scheduleStartM;
+  scheduleEndH = saved.scheduleEndH;
+  scheduleEndM = saved.scheduleEndM;
+  clockTime = new Date(saved.clockTime);
+  restorePolicyFactsFromSaved(saved);
+} else {
+  applyDefaultPolicyFacts();
+}
 
 // ─── DOM helpers ───────────────────────────────────────────────────────────
 
@@ -243,7 +345,7 @@ function updateDecisionBanner(): void {
   const isAllow = d.decision === "allow";
   banner.className = `decision-banner result-${d.decision}`;
   labelEl.textContent = formatPrincipal(d.principal);
-  verbEl.textContent = `· ${d.action} →`;
+  verbEl.textContent = `\u00b7 ${d.action} \u2192`;
   outcomeEl.textContent = isAllow ? "ALLOW" : "DENY";
   reasonEl.textContent = d.reason ? d.reason : "";
 }
@@ -271,14 +373,12 @@ function updateTrace(
   const isAllow = decision === "allow";
   entry.innerHTML = `
     <span class="trace-permission">${action}</span>
-    <span class="trace-result trace-result--${decision}">${isAllow ? "✓ allow" : "✗ deny"}</span>
+    <span class="trace-result trace-result--${decision}">${isAllow ? "\u2713 allow" : "\u2717 deny"}</span>
     ${reason ? `<span class="trace-reason">${reason}</span>` : ""}
     ${details ? details.map((d) => `<div class="trace-detail">${d}</div>`).join("") : ""}
   `;
 
   trace.prepend(entry);
-
-  // Keep only last 8 entries.
   while (trace.children.length > 8) {
     trace.lastElementChild?.remove();
   }
@@ -294,22 +394,32 @@ async function attemptAction(action: CarAction, onAllowed: () => void): Promise<
 
     if (result.decision === "allow") {
       onAllowed();
-      showFeedback(`“${action}” → allowed`, "success");
-      updateTrace(action, "allow", null, [`Principal: ${formatPrincipal(currentPrincipal)}`, "Grant from role or policy source matched."]);
+      showFeedback(`\u201c${action}\u201d \u2192 allowed`, "success");
+      updateTrace(action, "allow", null, [
+        `Principal: ${formatPrincipal(currentPrincipal)}`,
+        "Grant from role or policy source matched.",
+      ]);
     } else {
       const reason = result.reason ?? "unknown";
-      showFeedback(`“${action}” → denied (${reason})`, "error");
-      updateTrace(action, "deny", reason, [`Principal: ${formatPrincipal(currentPrincipal)}`, `Denial reason: ${reason}.`]);
+      showFeedback(`\u201c${action}\u201d \u2192 denied (${reason})`, "error");
+      updateTrace(action, "deny", reason, [
+        `Principal: ${formatPrincipal(currentPrincipal)}`,
+        `Denial reason: ${reason}.`,
+      ]);
     }
   } catch (err) {
-    showFeedback(`Error checking “${action}”`, "error");
+    showFeedback(`Error checking \u201c${action}\u201d`, "error");
   }
+  saveState();
   await renderTable();
 }
 
 // ─── Protected management path ─────────────────────────────────────────────
 
-async function attemptManagement(onAllowed: () => void, label: string = "Policy change"): Promise<boolean> {
+async function attemptManagement(
+  onAllowed: () => void,
+  label: string = "Policy change",
+): Promise<boolean> {
   const evaluator = getEvaluator(currentPrincipal);
   try {
     const result = await evaluator.decide("manage-policy");
@@ -317,16 +427,17 @@ async function attemptManagement(onAllowed: () => void, label: string = "Policy 
 
     if (result.decision === "allow") {
       onAllowed();
-      showFeedback("Policy change applied → re-evaluated", "success");
-      updateTrace("manage-policy", "allow", null, [`${label} — granted.`]);
+      showFeedback("Policy change applied \u2192 re-evaluated", "success");
+      updateTrace("manage-policy", "allow", null, [`${label} \u2014 granted.`]);
+      saveState();
       return true;
     } else {
-      showFeedback("Policy management denied — only Super Admin can manage policy", "error");
-      updateTrace("manage-policy", "deny", result.reason ?? "no-grant", [`${label} — blocked.`]);
+      showFeedback("Policy management denied \u2014 only Super Admin can manage policy", "error");
+      updateTrace("manage-policy", "deny", result.reason ?? "no-grant", [`${label} \u2014 blocked.`]);
       return false;
     }
   } catch (err) {
-    showFeedback(`Error checking manage-policy`, "error");
+    showFeedback("Error checking manage-policy", "error");
     return false;
   }
 }
@@ -346,7 +457,6 @@ async function renderTable(): Promise<void> {
 
   for (const car of cars) {
     const tr = document.createElement("tr");
-
     appendTd(tr, String(car.id));
     appendTd(tr, car.make);
     appendTd(tr, car.model);
@@ -355,7 +465,9 @@ async function renderTable(): Promise<void> {
     actionsTd.className = "actions-cell";
 
     addActionBtn(actionsTd, "Read", readResult, () =>
-      attemptAction("cars.read", () => showFeedback(`Car #${car.id}: ${car.make} ${car.model}`, "info")),
+      attemptAction("cars.read", () =>
+        showFeedback(`Car #${car.id}: ${car.make} ${car.model}`, "info"),
+      ),
     );
     addActionBtn(actionsTd, "Update", updateResult, () =>
       attemptAction("cars.update", () => {
@@ -363,6 +475,7 @@ async function renderTable(): Promise<void> {
         if (newModel && newModel.trim()) {
           car.model = newModel.trim();
           showFeedback(`Car #${car.id} updated`, "success");
+          saveState();
           renderTable();
         }
       }),
@@ -371,6 +484,7 @@ async function renderTable(): Promise<void> {
       attemptAction("cars.delete", () => {
         cars = cars.filter((c) => c.id !== car.id);
         showFeedback(`Car #${car.id} deleted`, "success");
+        saveState();
         renderTable();
       }),
     );
@@ -379,7 +493,6 @@ async function renderTable(): Promise<void> {
     tbody.appendChild(tr);
   }
 
-  // Create button state.
   const createResult = await safeDecide("cars.create");
   const createBtn = byId<HTMLButtonElement>("create-car-btn");
   if (createResult.decision === "allow") {
@@ -442,26 +555,21 @@ async function safeDecide(perm: string): Promise<AuthorizationResult> {
 function setPrincipal(id: PrincipalId): void {
   currentPrincipal = id;
 
-  // Update radio-group state.
   document.querySelectorAll<HTMLButtonElement>(".segmented-btn[data-principal]").forEach((btn) => {
     const isActive = btn.dataset.principal === id;
     btn.setAttribute("aria-checked", String(isActive));
     btn.classList.toggle("active", isActive);
   });
 
-  // Toggle policy editor view.
   const isSuper = id === "super-admin";
   byId("policy-super-admin").hidden = !isSuper;
   byId("policy-locked").hidden = isSuper;
 
-  // Show correct actor name in the locked notice.
   document.querySelectorAll<HTMLSpanElement>(".actor-name").forEach((el) => {
     el.style.display = el.dataset.actor === id ? "inline" : "none";
   });
 
-  // Sync checkboxes to current policy state.
   syncPolicyUI();
-
   renderTable();
 }
 
@@ -487,10 +595,10 @@ function setupPolicyToggles(): void {
       }
     }, `Toggle cars.update grant: ${checked ? "add" : "remove"}`);
     if (!granted) {
-      // Revert checkbox on denial.
       byId<HTMLInputElement>("toggle-update-grant").checked = !checked;
     }
     await renderTable();
+    saveState();
   });
 
   byId<HTMLInputElement>("toggle-delete-deny").addEventListener("change", async (e) => {
@@ -506,6 +614,7 @@ function setupPolicyToggles(): void {
       byId<HTMLInputElement>("toggle-delete-deny").checked = !checked;
     }
     await renderTable();
+    saveState();
   });
 }
 
@@ -534,13 +643,10 @@ function updateClockDisplay(): void {
 
 /**
  * Replace the sole reports.read fact with one matching the current controls.
- *
  * Because reports.read exists ONLY in the policy source (not in the role),
- * changing the fact here is the single source of truth — no stale role grant
- * can override the editor's hours.
+ * the editor is the single source of truth.
  */
 async function evaluateSchedule(): Promise<void> {
-  // Remove every reports.read fact for super-admin, then add the right one.
   policySource.removeAllFacts("super-admin", "reports.read");
 
   if (scheduleEnabled) {
@@ -550,29 +656,23 @@ async function evaluateSchedule(): Promise<void> {
       schedule: makeWeekSchedule(scheduleStartH, scheduleStartM, scheduleEndH, scheduleEndM),
     });
   } else {
-    // No schedule = unrestricted grant.
     policySource.addFact("super-admin", {
       permission: "reports.read",
       effect: "grant",
     });
   }
 
-  // Evaluate at the clock time.
   const evalSA = getEvaluator("super-admin");
   try {
     const result = await evalSA.decide("reports.read", { at: clockTime });
     const el = byId("schedule-result");
     const isAllow = result.decision === "allow";
     el.className = `schedule-result ${isAllow ? "allow" : "deny"}`;
-    let label: string;
-    if (isAllow) {
-      label = scheduleEnabled
-        ? "✓ reports.read allowed (inside schedule)"
-        : "✓ reports.read allowed (no schedule restriction)";
-    } else {
-      label = `✗ reports.read denied (${result.reason ?? "unknown"})`;
-    }
-    el.textContent = label;
+    el.textContent = isAllow
+      ? scheduleEnabled
+        ? "\u2713 reports.read allowed (inside schedule)"
+        : "\u2713 reports.read allowed (no schedule restriction)"
+      : `\u2717 reports.read denied (${result.reason ?? "unknown"})`;
   } catch {
     byId("schedule-result").textContent = "Error evaluating schedule";
   }
@@ -590,6 +690,7 @@ function setupScheduleControls(): void {
       return;
     }
     await evaluateSchedule();
+    saveState();
   });
 
   const setupHourInput = (id: string, setter: (v: number) => void): void => {
@@ -597,23 +698,22 @@ function setupScheduleControls(): void {
     input.addEventListener("change", async () => {
       const val = Number(input.value);
       if (isNaN(val)) return;
-      // Clamp.
       const max = input.classList.contains("minute") ? 59 : 23;
       input.value = String(Math.max(0, Math.min(max, val)));
 
       const granted = await attemptManagement(() => {
         setter(Number(input.value));
-      }, `Adjust schedule hours`);
+      }, "Adjust schedule hours");
       if (!granted) {
-        // Revert to previous value (read back from state).
         input.value = String(
           id.includes("start")
             ? (id.includes("h") ? scheduleStartH : scheduleStartM)
-            : (id.includes("h") ? scheduleEndH : scheduleEndM)
+            : (id.includes("h") ? scheduleEndH : scheduleEndM),
         );
         return;
       }
       await evaluateSchedule();
+      saveState();
     });
   };
 
@@ -622,23 +722,25 @@ function setupScheduleControls(): void {
   setupHourInput("schedule-end-h", (v) => { scheduleEndH = v; });
   setupHourInput("schedule-end-m", (v) => { scheduleEndM = v; });
 
-  // Clock controls.
   byId("clock-inc").addEventListener("click", async () => {
     clockTime = new Date(clockTime.getTime() + 3_600_000);
     updateClockDisplay();
     await evaluateSchedule();
+    saveState();
   });
 
   byId("clock-dec").addEventListener("click", async () => {
     clockTime = new Date(clockTime.getTime() - 3_600_000);
     updateClockDisplay();
     await evaluateSchedule();
+    saveState();
   });
 
   byId("clock-reset").addEventListener("click", async () => {
     clockTime = new Date(INITIAL_CLOCK);
     updateClockDisplay();
     await evaluateSchedule();
+    saveState();
   });
 }
 
@@ -651,20 +753,20 @@ async function onCreateCar(): Promise<void> {
   if (!model || model.trim() === "") return;
   await attemptAction("cars.create", () => {
     cars.push({ id: nextCarId++, make: make.trim(), model: model.trim() });
+    saveState();
   });
 }
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Principal switcher.
   document.querySelectorAll<HTMLButtonElement>("[data-principal]").forEach((btn) => {
     btn.addEventListener("click", () => {
       setPrincipal(btn.dataset.principal as PrincipalId);
+      saveState();
     });
   });
 
-  // Presentation mode.
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       presentationMode = btn.dataset.mode as PresentationMode;
@@ -673,20 +775,16 @@ document.addEventListener("DOMContentLoaded", () => {
         b.setAttribute("aria-checked", String(isActive));
       });
       renderTable();
+      saveState();
     });
   });
 
-  // Create car.
   byId<HTMLButtonElement>("create-car-btn").addEventListener("click", onCreateCar);
 
-  // Policy toggles.
   setupPolicyToggles();
-
-  // Schedule controls.
   setupScheduleControls();
 
-  // Initial render.
-  setPrincipal("super-admin");
+  setPrincipal(currentPrincipal);
   updateClockDisplay();
   evaluateSchedule();
   updateDecisionBanner();
