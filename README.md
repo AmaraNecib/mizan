@@ -212,22 +212,132 @@ It does not currently:
 
 Those responsibilities stay with the host application or optional integrations. A production application should obtain a trusted principal from its authentication layer, resolve the required authorization facts through its adapters, call Mizan, and enforce the result on the server or API boundary.
 
-## Built with Codex
+## Inspiration
 
-Mizan was developed for OpenAI Build Week using Codex and GPT-5.6.
+Authorization is rebuilt inside almost every application, even though the
+underlying questions are often the same: does this principal have this
+permission, does a denial override a grant, is the access scoped or temporary,
+and what should happen when the application's data model is different?
 
-The human builder owned the product direction, architectural decisions, acceptance criteria, trade-offs, and final review. Codex and supporting AI agents were used to:
+We wanted a small open-source decision layer that could be reused across
+projects without forcing a database schema, ORM, authentication provider, or
+cache. The central idea became simple: adapters provide facts; Mizan makes the
+final authorization decision.
+
+## What it does
+
+Mizan is a runtime-neutral, TypeScript-first authorization library. It
+evaluates:
+
+- role-derived and direct grants;
+- direct denial overrides, with denial taking precedence;
+- exact permissions and patterns such as `files.*` and `*`;
+- global and scoped facts;
+- absolute validity windows with `startsAt` and `expiresAt`;
+- recurring weekly and date-specific schedules;
+- facts from named sources and source plans;
+- explainable `allow` or `deny` decisions with stable reason codes.
+
+The interactive demo makes these decisions visible with Super Admin, Admin,
+and Support principals. It demonstrates policy management, a scheduled Admin
+delete permission, a Support denial override, a controllable evaluation clock,
+and protected actions that call the real Mizan evaluator before changing demo
+state.
+
+Mizan is authorization, not authentication. The host application remains
+responsible for users, sessions, JWTs, cookies, persistence, revocation,
+caching, and server-side enforcement.
+
+## How we built it
+
+Mizan is a fixed-version TypeScript monorepo. The core package owns the
+decision algorithm and source contracts, while the memory package provides a
+small reference adapter for tests and examples. This keeps the core
+independent from Prisma, Drizzle, PostgreSQL, SQLite, Redis, or any other
+storage choice.
+
+### Codex and GPT-5.6 collaboration
+
+Mizan was developed for OpenAI Build Week using Codex and GPT-5.6 as the
+planning, architecture, and review layer. The human builder owned the product
+direction, architectural decisions, acceptance criteria, trade-offs, and final
+review.
+
+ChatGPT/GPT-5.6 and Codex were used to:
 
 - turn the authorization concept into a small, testable v0.1 architecture;
 - design the source/adapter boundary and decision model;
-- implement the core evaluator and memory adapter;
-- create tests for grants, denials, scopes, temporal windows, schedules, and source behavior;
-- review changes, find edge cases, and improve documentation;
-- build the interactive decision demo used for evaluation.
+- break the work into milestones and focused implementation tasks;
+- define acceptance criteria and test scenarios;
+- inspect changes, find edge cases, and review the resulting behavior;
+- guide the documentation and interactive demo story.
 
-The important design decision is that AI-assisted implementation does not move application data ownership into Mizan: adapters provide facts, while Mizan remains the decision layer.
+Coding-capable worker agents/models carried out the implementation tasks under
+those decisions. This was a deliberate separation: stronger reasoning models
+focused on architecture and review, while specialized coding agents handled
+the repository changes. Codex was the shared engineering workspace and
+workflow used to coordinate that collaboration; it is not presented as the
+sole author of the implementation.
 
-The required Codex session information is provided in the Devpost submission rather than committed to this repository.
+The important boundary is that AI-assisted implementation does not move
+application data ownership into Mizan: adapters provide facts, while Mizan
+remains the decision layer.
+
+The required Codex session information is provided in the Devpost submission
+rather than committed to this repository.
+
+## Challenges we ran into
+
+The main challenge was balancing useful defaults with freedom for existing
+applications. A library that owns the schema is easy to start with but quickly
+becomes difficult to reuse, so we kept storage and authentication outside the
+core and made the adapter boundary explicit.
+
+We also had to make precedence and time behavior visible rather than hiding it
+inside a boolean helper. A direct denial must remain stronger than a role grant,
+and a scheduled grant must be evaluated against one consistent clock across the
+sidebar, table actions, and actual mutation path. Finally, the multi-agent
+workflow required tests, review gates, and human decisions so that speed did not
+replace correctness.
+
+## Accomplishments that we're proud of
+
+- A small reusable authorization core with no ORM or authentication coupling.
+- A memory adapter that acts as a reference for custom adapters.
+- A fixed-version monorepo structure ready for future integrations.
+- Explainable decisions with stable denial reasons instead of opaque booleans.
+- Coverage for role grants, direct grants, denial precedence, scopes, temporal
+  windows, schedules, and source behavior.
+- An interactive browser demo that shows the decision layer working end to end.
+- A documented AI-assisted development process using Codex and GPT-5.6.
+
+## What we learned
+
+We learned that the most reusable abstraction is not a database model but a
+clear capability boundary: the adapter translates application data into facts,
+and the authorization engine decides. We also reinforced that UI visibility is
+only a user-experience concern; every protected operation must be checked again
+at the server or API boundary.
+
+Working with AI agents also made the engineering process itself important.
+Small milestones, explicit acceptance criteria, automated tests, adversarial
+review, and a final human decision made the collaboration much more reliable
+than asking one model to generate an entire system without checkpoints.
+
+## What's next for Mizan
+
+The next steps are driven by real applications rather than by trying to solve
+every authorization problem at once:
+
+- keep the v0.1 core stable while improving adapter ergonomics and examples;
+- add useful, tested integrations for common database and framework setups;
+- support composed sources for database facts, cache lookups, and revocation
+  workflows without moving those responsibilities into the core;
+- explore resource-aware rules and a small ABAC extension for ownership and
+  tenant-aware decisions;
+- add optional tooling for policy import, synchronization, audit events, and
+  administration;
+- publish stable fixed-version releases as the API matures toward v1.
 
 ## Hackathon testing path
 
