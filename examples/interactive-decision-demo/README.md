@@ -55,9 +55,10 @@ advances or rewinds time — within hours the permission allows, outside it
 returns `outside-schedule`. Admin and Support can see the schedule status but
 cannot modify the settings.
 
-The schedule rule is enforced through the real Mizan `manage-policy` decision —
-non-Super Admin users who attempt to change the schedule will be blocked by the
-authorization engine, not just by disabled UI controls.
+The schedule restriction is enforced by the real Mizan `cars.delete` decision
+evaluated at the demo clock time. Changes to the schedule are separately gated
+by the real Mizan `manage-policy` decision, so non-Super Admin users are blocked
+by the authorization engine, not just by disabled UI controls.
 
 ## Stack
 
