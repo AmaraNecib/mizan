@@ -19,6 +19,7 @@ import type {
   AuthorizationFact,
   RoleDefinition,
   RoleAssignment,
+  ResolveContext,
   SourceOutcome,
   Mizan,
 } from "@mizan/core";
@@ -92,7 +93,7 @@ export class MemoryAdapter {
    *   role-derived grant resolution.
    * @returns A source outcome with all stored facts.
    */
-  async resolve(context: { principalId?: string }): Promise<SourceOutcome> {
+  async resolve(context: ResolveContext): Promise<SourceOutcome> {
     const allFacts: AuthorizationFact[] = [];
 
     for (const facts of this.store.permissions.values()) {
@@ -140,7 +141,7 @@ export class MemoryAdapter {
  */
 export function useMemoryAdapter(mizan: Mizan, adapter: MemoryAdapter): void {
   mizan.registerSource(adapter.sourceName, {
-    resolve(context: { principalId?: string }) {
+    resolve(context: ResolveContext) {
       return adapter.resolve(context);
     },
   });

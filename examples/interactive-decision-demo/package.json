@@ -1,0 +1,19 @@
+{
+  "name": "@mizan/interactive-decision-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "cd ../.. && bun build examples/interactive-decision-demo/main.ts --outdir=examples/interactive-decision-demo/dist",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "bun run build && bunx --bun serve ."
+  },
+  "dependencies": {
+    "@mizan/core": "workspace:*",
+    "@mizan/memory": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

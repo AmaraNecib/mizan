@@ -97,7 +97,7 @@ describe("Memory adapter integration", () => {
     });
 
     // The adapter only returns facts, not a decision
-    const outcome = await adapter.resolve({ principalId: "user-1" });
+    const outcome = await adapter.resolve({ principalId: "user-1", now: new Date() });
     expect(outcome.status).toBe("facts");
     expect(outcome.facts).toHaveLength(1);
     expect(outcome.facts[0]!.effect).toBe("grant");

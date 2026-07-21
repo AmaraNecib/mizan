@@ -2,7 +2,8 @@
   "name": "mizan",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "build": "bun run --filter='@mizan/*' build",
