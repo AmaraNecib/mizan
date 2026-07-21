@@ -801,6 +801,13 @@ async function evaluateSchedule(): Promise<void> {
         : `✗ cars.delete (Admin) — ${adminResult.reason ?? "unknown"}`
     }</div>`;
     el.className = "schedule-result";
+
+    // Refresh the cars table and permissions sidebar so they reflect
+    // the updated schedule state (e.g., Admin's Delete buttons).
+    await Promise.all([
+      renderTable(),
+      renderPermissions(),
+    ]);
   } catch {
     byId("schedule-result").innerHTML = "<div>Error evaluating schedule</div>";
   }
