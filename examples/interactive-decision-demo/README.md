@@ -47,15 +47,17 @@ Then open **http://localhost:3000** (or whatever port your server uses) in a bro
 | `cars.update` | ✅ | ✅ | ❌ `no-grant` |
 | `cars.delete` | ✅ | ✅ (schedule) | ❌ `matching-denial` |
 | `manage-policy` | ✅ | ❌ `no-grant` | ❌ `no-grant` |
-| `reports.read` | ✅ (schedule) | ❌ `no-grant` | ❌ `no-grant` |
-
 ## How the schedule works
 
-Super Admin can enable/disable the schedule restriction on `reports.read` and
-Admin's `cars.delete`, adjusting the UTC business-hours window for both.
-A controllable evaluation clock advances or rewinds time — within hours the
-permission allows, outside it returns `outside-schedule`.
-Admin and Support cannot modify these settings.
+Super Admin can enable/disable the schedule restriction on Admin's `cars.delete`
+and adjust the UTC business-hours window. A controllable evaluation clock
+advances or rewinds time — within hours the permission allows, outside it
+returns `outside-schedule`. Admin and Support can see the schedule status but
+cannot modify the settings.
+
+The schedule rule is enforced through the real Mizan `manage-policy` decision —
+non-Super Admin users who attempt to change the schedule will be blocked by the
+authorization engine, not just by disabled UI controls.
 
 ## Stack
 

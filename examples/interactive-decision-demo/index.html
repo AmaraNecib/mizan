@@ -54,7 +54,7 @@
               </label>
             </div>
             <div class="policy-block">
-              <p class="schedule-note">Schedule controls are in the toolbar above. Affects <code>reports.read</code> (Super Admin) and <code>cars.delete</code> (Admin).</p>
+              <p class="schedule-note">Schedule controls are in the toolbar above, visible to all principals. Only Super Admin can modify them. Controls Admin's <code>cars.delete</code> permission.</p>
             </div>
           </div>
 
@@ -100,7 +100,7 @@
         <div id="schedule-bar" class="schedule-bar">
           <label class="schedule-toggle-compact" title="Enable/disable schedule enforcement">
             <input type="checkbox" id="toggle-schedule" checked />
-            <span>Enforce schedule</span>
+            <span>Schedule <code>cars.delete</code></span>
           </label>
           <div class="schedule-hours">
             <input type="number" id="schedule-start-h" class="hour-input" min="0" max="23" value="9" aria-label="Start hour" />

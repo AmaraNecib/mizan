@@ -166,9 +166,6 @@ const adapter = new MemoryAdapter({
       permissions: [
         { permission: "cars.*", effect: "grant" },
         { permission: "manage-policy", effect: "grant" },
-        // NOTE: reports.read is NOT in the role definition.
-        // It lives solely in the mutable policy source so the schedule
-        // editor is the single source of truth for that permission.
       ],
     },
     {
@@ -197,16 +194,11 @@ const adapter = new MemoryAdapter({
 
 useMemoryAdapter(mizan, adapter);
 
-// Policy source: Support overrides + sole reports.read.
+// Policy source holds per-principal overrides managed through the editor.
 const policySource = new MutablePolicySource();
 
 function applyDefaultPolicyFacts(): void {
   policySource.addFact("support", { permission: "cars.delete", effect: "deny" });
-  policySource.addFact("super-admin", {
-    permission: "reports.read",
-    effect: "grant",
-    schedule: makeWeekSchedule(9, 0, 17, 0),
-  });
   policySource.addFact("admin", {
     permission: "cars.delete",
     effect: "grant",
@@ -215,10 +207,9 @@ function applyDefaultPolicyFacts(): void {
 }
 
 function restorePolicyFactsFromSaved(saved: SavedState): void {
-  // Wipe dynamic facts for the three principals we manage.
+  // Wipe dynamic facts for the two principals we manage.
   policySource.removeAllFacts("support", "cars.delete");
   policySource.removeAllFacts("support", "cars.update");
-  policySource.removeAllFacts("super-admin", "reports.read");
   policySource.removeAllFacts("admin", "cars.delete");
 
   if (saved.deleteDeny) {
@@ -228,14 +219,6 @@ function restorePolicyFactsFromSaved(saved: SavedState): void {
     policySource.addFact("support", { permission: "cars.update", effect: "grant" });
   }
   if (saved.scheduleEnabled) {
-    policySource.addFact("super-admin", {
-      permission: "reports.read",
-      effect: "grant",
-      schedule: makeWeekSchedule(
-        saved.scheduleStartH, saved.scheduleStartM,
-        saved.scheduleEndH, saved.scheduleEndM,
-      ),
-    });
     policySource.addFact("admin", {
       permission: "cars.delete",
       effect: "grant",
@@ -245,10 +228,6 @@ function restorePolicyFactsFromSaved(saved: SavedState): void {
       ),
     });
   } else {
-    policySource.addFact("super-admin", {
-      permission: "reports.read",
-      effect: "grant",
-    });
     policySource.addFact("admin", {
       permission: "cars.delete",
       effect: "grant",
@@ -268,6 +247,25 @@ const evaluators: Record<PrincipalId, ReturnType<typeof mizan.forPrincipal>> = {
 
 function getEvaluator(id: PrincipalId) {
   return evaluators[id];
+}
+
+/**
+ * Evaluate a permission against the demo evaluation clock, not the real
+ * system clock. All UI-facing authorization checks must use this helper
+ * so schedule-controlled permissions (e.g., Admin cars.delete) are
+ * consistently evaluated at the demo clock time everywhere — sidebar,
+ * table buttons, and actual action clicks.
+ */
+async function decideAt(permission: string): Promise<AuthorizationResult> {
+  return getEvaluator(currentPrincipal).decide(permission, { at: clockTime });
+}
+
+async function safeDecideAt(perm: string): Promise<AuthorizationResult> {
+  try {
+    return await decideAt(perm);
+  } catch {
+    return { decision: "deny", reason: "contract-violation" };
+  }
 }
 
 // ─── Application state ─────────────────────────────────────────────────────
@@ -408,12 +406,11 @@ async function renderPermissions(): Promise<void> {
     "cars.update",
     "cars.delete",
     "manage-policy",
-    "reports.read",
   ];
   const results = await Promise.all(
     perms.map(async (p) => {
       try {
-        const r = await getEvaluator(currentPrincipal).decide(p);
+        const r = await decideAt(p);
         return { permission: p, result: r };
       } catch {
         return { permission: p, result: { decision: "deny" as const, reason: "error" } };
@@ -480,9 +477,8 @@ function updateTrace(
 // ─── Protected action path (cars table) ────────────────────────────────────
 
 async function attemptAction(action: CarAction, onAllowed: () => void): Promise<void> {
-  const evaluator = getEvaluator(currentPrincipal);
   try {
-    const result = await evaluator.decide(action);
+    const result = await decideAt(action);
     showDecision(currentPrincipal, action, result.decision, result.reason);
 
     if (result.decision === "allow") {
@@ -512,9 +508,8 @@ async function attemptManagement(
   onAllowed: () => void,
   label: string = "Policy change",
 ): Promise<boolean> {
-  const evaluator = getEvaluator(currentPrincipal);
   try {
-    const result = await evaluator.decide("manage-policy");
+    const result = await decideAt("manage-policy");
     showDecision(currentPrincipal, "manage-policy", result.decision, result.reason);
 
     if (result.decision === "allow") {
@@ -540,9 +535,9 @@ async function renderTable(): Promise<void> {
   const tbody = byId<HTMLTableSectionElement>("cars-tbody");
 
   const [readResult, updateResult, deleteResult] = await Promise.all([
-    safeDecide("cars.read"),
-    safeDecide("cars.update"),
-    safeDecide("cars.delete"),
+    safeDecideAt("cars.read"),
+    safeDecideAt("cars.update"),
+    safeDecideAt("cars.delete"),
   ]);
 
   tbody.innerHTML = "";
@@ -590,7 +585,7 @@ async function renderTable(): Promise<void> {
     }
   }
 
-  const createResult = await safeDecide("cars.create");
+  const createResult = await safeDecideAt("cars.create");
   const createBtn = byId<HTMLButtonElement>("create-car-btn");
   if (createResult.decision === "allow") {
     createBtn.removeAttribute("disabled");
@@ -639,15 +634,19 @@ function addActionBtn(
   container.appendChild(btn);
 }
 
-async function safeDecide(perm: string): Promise<AuthorizationResult> {
-  try {
-    return await getEvaluator(currentPrincipal).decide(perm);
-  } catch {
-    return { decision: "deny", reason: "contract-violation" };
-  }
-}
-
 // ─── Principal switching ───────────────────────────────────────────────────
+
+function syncScheduleUI(): void {
+  const isSuper = currentPrincipal === "super-admin";
+  byId<HTMLInputElement>("toggle-schedule").disabled = !isSuper;
+  byId<HTMLInputElement>("schedule-start-h").disabled = !isSuper;
+  byId<HTMLInputElement>("schedule-start-m").disabled = !isSuper;
+  byId<HTMLInputElement>("schedule-end-h").disabled = !isSuper;
+  byId<HTMLInputElement>("schedule-end-m").disabled = !isSuper;
+  byId<HTMLButtonElement>("clock-dec").disabled = !isSuper;
+  byId<HTMLButtonElement>("clock-inc").disabled = !isSuper;
+  byId<HTMLButtonElement>("clock-reset").disabled = !isSuper;
+}
 
 async function setPrincipal(id: PrincipalId): Promise<void> {
   currentPrincipal = id;
@@ -662,8 +661,10 @@ async function setPrincipal(id: PrincipalId): Promise<void> {
   byId("policy-super-admin").hidden = !isSuper;
   byId("policy-locked").hidden = isSuper;
 
-  // Schedule controls visible to Super Admin and Admin (not Support).
-  byId("schedule-bar").hidden = id === "support";
+  // Schedule bar is visible to all principals (so everyone sees the status)
+  // but only Super Admin can interact with the controls.
+  byId("schedule-bar").hidden = false;
+  syncScheduleUI();
 
   document.querySelectorAll<HTMLSpanElement>(".actor-name").forEach((el) => {
     el.style.display = el.dataset.actor === id ? "inline" : "none";
@@ -749,64 +750,38 @@ function updateClockDisplay(): void {
 }
 
 /**
- * Replace schedule-controlled facts (reports.read for super-admin, cars.delete for admin)
- * with ones matching the current controls, then display both results.
+ * Replace the schedule-controlled facts with ones matching the current controls,
+ * then display the result for Admin's cars.delete.
  */
 async function evaluateSchedule(): Promise<void> {
-  policySource.removeAllFacts("super-admin", "reports.read");
   policySource.removeAllFacts("admin", "cars.delete");
 
   if (scheduleEnabled) {
-    policySource.addFact("super-admin", {
-      permission: "reports.read",
-      effect: "grant",
-      schedule: makeWeekSchedule(scheduleStartH, scheduleStartM, scheduleEndH, scheduleEndM),
-    });
     policySource.addFact("admin", {
       permission: "cars.delete",
       effect: "grant",
       schedule: makeWeekSchedule(scheduleStartH, scheduleStartM, scheduleEndH, scheduleEndM),
     });
   } else {
-    policySource.addFact("super-admin", {
-      permission: "reports.read",
-      effect: "grant",
-    });
     policySource.addFact("admin", {
       permission: "cars.delete",
       effect: "grant",
     });
   }
 
-  const evalSA = getEvaluator("super-admin");
-  const evalAdmin = getEvaluator("admin");
   try {
-    const [saResult, adminResult] = await Promise.all([
-      evalSA.decide("reports.read", { at: clockTime }),
-      evalAdmin.decide("cars.delete", { at: clockTime }),
-    ]);
-
+    const result = await getEvaluator("admin").decide("cars.delete", { at: clockTime });
     const el = byId("schedule-result");
-    const saOk = saResult.decision === "allow";
-    const adminOk = adminResult.decision === "allow";
-
-    el.innerHTML = `<div class="${saOk ? "allow" : "deny"}">${
-      saOk
-        ? scheduleEnabled
-          ? "✓ reports.read (Super Admin) — inside schedule"
-          : "✓ reports.read (Super Admin) — no restriction"
-        : `✗ reports.read (Super Admin) — ${saResult.reason ?? "unknown"}`
-    }</div><div class="${adminOk ? "allow" : "deny"}">${
-      adminOk
+    const isAllow = result.decision === "allow";
+    el.innerHTML = `<div class="${isAllow ? "allow" : "deny"}">${
+      isAllow
         ? scheduleEnabled
           ? "✓ cars.delete (Admin) — inside schedule"
           : "✓ cars.delete (Admin) — no restriction"
-        : `✗ cars.delete (Admin) — ${adminResult.reason ?? "unknown"}`
+        : `✗ cars.delete (Admin) — ${result.reason ?? "unknown"}`
     }</div>`;
     el.className = "schedule-result";
 
-    // Refresh the cars table and permissions sidebar so they reflect
-    // the updated schedule state (e.g., Admin's Delete buttons).
     await Promise.all([
       renderTable(),
       renderPermissions(),
@@ -819,7 +794,14 @@ async function evaluateSchedule(): Promise<void> {
 function setupScheduleControls(): void {
   const toggle = byId<HTMLInputElement>("toggle-schedule");
   toggle.addEventListener("change", async () => {
-    scheduleEnabled = toggle.checked;
+    const checked = toggle.checked;
+    const granted = await attemptManagement(() => {
+      scheduleEnabled = checked;
+    }, `Toggle schedule: ${checked ? "enable" : "disable"}`);
+    if (!granted) {
+      toggle.checked = !checked;
+      return;
+    }
     await evaluateSchedule();
     saveState();
   });
@@ -831,7 +813,19 @@ function setupScheduleControls(): void {
       if (isNaN(val)) return;
       const max = input.classList.contains("minute") ? 59 : 23;
       input.value = String(Math.max(0, Math.min(max, val)));
-      setter(Number(input.value));
+
+      const granted = await attemptManagement(() => {
+        setter(Number(input.value));
+      }, "Adjust schedule hours");
+      if (!granted) {
+        const isHour = !input.classList.contains("minute");
+        input.value = String(
+          id.includes("start")
+            ? (isHour ? scheduleStartH : scheduleStartM)
+            : (isHour ? scheduleEndH : scheduleEndM),
+        );
+        return;
+      }
       await evaluateSchedule();
       saveState();
     });
@@ -843,21 +837,30 @@ function setupScheduleControls(): void {
   setupHourInput("schedule-end-m", (v) => { scheduleEndM = v; });
 
   byId("clock-inc").addEventListener("click", async () => {
-    clockTime = new Date(clockTime.getTime() + 3_600_000);
+    const granted = await attemptManagement(() => {
+      clockTime = new Date(clockTime.getTime() + 3_600_000);
+    }, "Advance clock");
+    if (!granted) return;
     updateClockDisplay();
     await evaluateSchedule();
     saveState();
   });
 
   byId("clock-dec").addEventListener("click", async () => {
-    clockTime = new Date(clockTime.getTime() - 3_600_000);
+    const granted = await attemptManagement(() => {
+      clockTime = new Date(clockTime.getTime() - 3_600_000);
+    }, "Rewind clock");
+    if (!granted) return;
     updateClockDisplay();
     await evaluateSchedule();
     saveState();
   });
 
   byId("clock-reset").addEventListener("click", async () => {
-    clockTime = new Date(INITIAL_CLOCK);
+    const granted = await attemptManagement(() => {
+      clockTime = new Date(INITIAL_CLOCK);
+    }, "Reset clock");
+    if (!granted) return;
     updateClockDisplay();
     await evaluateSchedule();
     saveState();
@@ -891,7 +894,7 @@ function hideCreateForm(): void {
 
 function setupCreateForm(): void {
   byId<HTMLButtonElement>("create-car-btn").addEventListener("click", async () => {
-    const result = await getEvaluator(currentPrincipal).decide("cars.create");
+    const result = await decideAt("cars.create");
     if (result.decision === "allow") {
       showCreateForm();
     } else {
@@ -957,7 +960,7 @@ function buildUpdateEditorRow(car: Car): HTMLTableRowElement {
         return;
       }
       // Re-check authorization before mutating.
-      const result = await getEvaluator(currentPrincipal).decide("cars.update");
+      const result = await decideAt("cars.update");
       if (result.decision !== "allow") {
         showDecision(currentPrincipal, "cars.update", result.decision, result.reason);
         showFeedback("cars.update no longer allowed", "error");

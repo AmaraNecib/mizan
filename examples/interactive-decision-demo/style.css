@@ -300,6 +300,17 @@ body {
   outline-offset: 1px;
 }
 
+/* Disabled controls — non-Super Admin sees them greyed out */
+.schedule-bar :disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.schedule-bar .schedule-toggle-compact:has(:disabled) {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 /* ─── Controls bar ──────────────────────────────────────────────────── */
 .controls-bar {
   display: flex; flex-wrap: wrap; gap: var(--space-md) var(--space-xl);

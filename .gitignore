@@ -8,7 +8,7 @@ dist/
 .DS_Store
 .pi-subagents/
 .scratch/
-videos/
+video
 .playwright-cli/
 .playwright-mcp/
 .worktrees/
