@@ -45,16 +45,17 @@ Then open **http://localhost:3000** (or whatever port your server uses) in a bro
 | `cars.read` | ✅ | ✅ | ✅ |
 | `cars.create` | ✅ | ✅ | ✅ |
 | `cars.update` | ✅ | ✅ | ❌ `no-grant` |
-| `cars.delete` | ✅ | ✅ | ❌ `matching-denial` |
+| `cars.delete` | ✅ | ✅ (schedule) | ❌ `matching-denial` |
 | `manage-policy` | ✅ | ❌ `no-grant` | ❌ `no-grant` |
 | `reports.read` | ✅ (schedule) | ❌ `no-grant` | ❌ `no-grant` |
 
 ## How the schedule works
 
 Super Admin can enable/disable the schedule restriction on `reports.read` and
-adjust the UTC business-hours window. A controllable evaluation clock advances
-or rewinds time — within hours the permission allows, outside it returns
-`outside-schedule`. Admin and Support cannot modify these settings.
+Admin's `cars.delete`, adjusting the UTC business-hours window for both.
+A controllable evaluation clock advances or rewinds time — within hours the
+permission allows, outside it returns `outside-schedule`.
+Admin and Support cannot modify these settings.
 
 ## Stack
 

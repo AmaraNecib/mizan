@@ -184,9 +184,9 @@ body {
 .clock-btn { padding: 0.15rem 0.35rem; font-family: var(--font-body); font-size: 0.65rem; font-weight: 500; border: 1px solid var(--paper-border); border-radius: 3px; background: var(--paper); color: var(--ink-muted); cursor: pointer; }
 .clock-btn:hover { background: var(--paper-hover); color: var(--ink); }
 .clock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.schedule-result { margin-top: var(--space-sm); font-size: 0.75rem; font-weight: 500; }
-.schedule-result.allow { color: var(--allow); }
-.schedule-result.deny { color: var(--deny); }
+.schedule-result { margin-top: var(--space-sm); font-size: 0.75rem; font-weight: 500; display: flex; flex-direction: column; gap: 0.2rem; }
+.schedule-result .allow { color: var(--allow); }
+.schedule-result .deny { color: var(--deny); }
 
 .locked-notice { display: flex; gap: var(--space-md); align-items: flex-start; padding: var(--space-md); background: var(--paper-raised); border-radius: 4px; }
 .locked-icon { font-size: 1rem; line-height: 1.4; }

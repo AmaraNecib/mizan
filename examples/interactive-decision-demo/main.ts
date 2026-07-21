@@ -174,7 +174,9 @@ const adapter = new MemoryAdapter({
     {
       name: "admin",
       permissions: [
-        { permission: "cars.*", effect: "grant" },
+        { permission: "cars.read", effect: "grant" },
+        { permission: "cars.create", effect: "grant" },
+        { permission: "cars.update", effect: "grant" },
       ],
     },
     {
@@ -205,13 +207,19 @@ function applyDefaultPolicyFacts(): void {
     effect: "grant",
     schedule: makeWeekSchedule(9, 0, 17, 0),
   });
+  policySource.addFact("admin", {
+    permission: "cars.delete",
+    effect: "grant",
+    schedule: makeWeekSchedule(9, 0, 17, 0),
+  });
 }
 
 function restorePolicyFactsFromSaved(saved: SavedState): void {
-  // Wipe dynamic facts for the two principals we manage.
+  // Wipe dynamic facts for the three principals we manage.
   policySource.removeAllFacts("support", "cars.delete");
   policySource.removeAllFacts("support", "cars.update");
   policySource.removeAllFacts("super-admin", "reports.read");
+  policySource.removeAllFacts("admin", "cars.delete");
 
   if (saved.deleteDeny) {
     policySource.addFact("support", { permission: "cars.delete", effect: "deny" });
@@ -228,9 +236,21 @@ function restorePolicyFactsFromSaved(saved: SavedState): void {
         saved.scheduleEndH, saved.scheduleEndM,
       ),
     });
+    policySource.addFact("admin", {
+      permission: "cars.delete",
+      effect: "grant",
+      schedule: makeWeekSchedule(
+        saved.scheduleStartH, saved.scheduleStartM,
+        saved.scheduleEndH, saved.scheduleEndM,
+      ),
+    });
   } else {
     policySource.addFact("super-admin", {
       permission: "reports.read",
+      effect: "grant",
+    });
+    policySource.addFact("admin", {
+      permission: "cars.delete",
       effect: "grant",
     });
   }
@@ -726,16 +746,21 @@ function updateClockDisplay(): void {
 }
 
 /**
- * Replace the sole reports.read fact with one matching the current controls.
- * Because reports.read exists ONLY in the policy source (not in the role),
- * the editor is the single source of truth.
+ * Replace schedule-controlled facts (reports.read for super-admin, cars.delete for admin)
+ * with ones matching the current controls, then display both results.
  */
 async function evaluateSchedule(): Promise<void> {
   policySource.removeAllFacts("super-admin", "reports.read");
+  policySource.removeAllFacts("admin", "cars.delete");
 
   if (scheduleEnabled) {
     policySource.addFact("super-admin", {
       permission: "reports.read",
+      effect: "grant",
+      schedule: makeWeekSchedule(scheduleStartH, scheduleStartM, scheduleEndH, scheduleEndM),
+    });
+    policySource.addFact("admin", {
+      permission: "cars.delete",
       effect: "grant",
       schedule: makeWeekSchedule(scheduleStartH, scheduleStartM, scheduleEndH, scheduleEndM),
     });
@@ -744,21 +769,40 @@ async function evaluateSchedule(): Promise<void> {
       permission: "reports.read",
       effect: "grant",
     });
+    policySource.addFact("admin", {
+      permission: "cars.delete",
+      effect: "grant",
+    });
   }
 
   const evalSA = getEvaluator("super-admin");
+  const evalAdmin = getEvaluator("admin");
   try {
-    const result = await evalSA.decide("reports.read", { at: clockTime });
+    const [saResult, adminResult] = await Promise.all([
+      evalSA.decide("reports.read", { at: clockTime }),
+      evalAdmin.decide("cars.delete", { at: clockTime }),
+    ]);
+
     const el = byId("schedule-result");
-    const isAllow = result.decision === "allow";
-    el.className = `schedule-result ${isAllow ? "allow" : "deny"}`;
-    el.textContent = isAllow
-      ? scheduleEnabled
-        ? "✓ reports.read allowed (inside schedule)"
-        : "✓ reports.read allowed (no schedule restriction)"
-      : `✗ reports.read denied (${result.reason ?? "unknown"})`;
+    const saOk = saResult.decision === "allow";
+    const adminOk = adminResult.decision === "allow";
+
+    el.innerHTML = `<div class="${saOk ? "allow" : "deny"}">${
+      saOk
+        ? scheduleEnabled
+          ? "✓ reports.read (Super Admin) — inside schedule"
+          : "✓ reports.read (Super Admin) — no restriction"
+        : `✗ reports.read (Super Admin) — ${saResult.reason ?? "unknown"}`
+    }</div><div class="${adminOk ? "allow" : "deny"}">${
+      adminOk
+        ? scheduleEnabled
+          ? "✓ cars.delete (Admin) — inside schedule"
+          : "✓ cars.delete (Admin) — no restriction"
+        : `✗ cars.delete (Admin) — ${adminResult.reason ?? "unknown"}`
+    }</div>`;
+    el.className = "schedule-result";
   } catch {
-    byId("schedule-result").textContent = "Error evaluating schedule";
+    byId("schedule-result").innerHTML = "<div>Error evaluating schedule</div>";
   }
 }
 
