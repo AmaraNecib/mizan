@@ -28,7 +28,7 @@ Then open **http://localhost:3000** (or whatever port your server uses) in a bro
 
 | Concept | Implementation |
 |---------|---------------|
-| **Three principals** | Super Admin (full access + policy management), Admin (full cars access), Support (restricted) |
+| **Three principals** | Super Admin (full access + policy management), Admin (read/create/update plus schedule-controlled delete), Support (restricted) |
 | **Protected actions** | Every cars-table click calls `decide()` through Mizan before mutating state |
 | **Denial reasons** | `matching-denial` for the delete override, `no-grant` for missing update permission |
 | **Decision banner** | Current decision shown above the fold: actor, action, ALLOW/DENY, reason |

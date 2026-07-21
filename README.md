@@ -104,7 +104,7 @@ The demo is an authorization decision gallery, not an authentication or administ
 It lets you switch between:
 
 - **Super Admin** — can manage the demo policy and inspect the schedule controls;
-- **Admin** — has full car actions but cannot manage policy;
+- **Admin** — can read, create, and update cars; scheduled delete access is available only inside the configured work window, and policy management is still locked;
 - **Support** — can read and create, has a direct denial for delete, and can receive a live direct grant for update from the Super Admin policy editor.
 
 The demo shows:
@@ -190,7 +190,7 @@ bun run build
 
 To test the browser demo, run bun run dev, then exercise the three principals and verify:
 
-1. Admin can perform the car actions but cannot open policy controls.
+1. Admin can read, create, and update cars; scheduled delete works inside the configured window and is denied outside it, while policy controls remain locked.
 2. Support can read and create, but delete is denied with matching-denial.
 3. Super Admin can grant Support cars.update and the decision changes without a page reload.
 4. The schedule allows access inside its window and returns outside-schedule outside it.
