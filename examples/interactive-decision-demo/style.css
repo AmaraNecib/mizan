@@ -184,7 +184,7 @@ body {
 .clock-btn { padding: 0.15rem 0.35rem; font-family: var(--font-body); font-size: 0.65rem; font-weight: 500; border: 1px solid var(--paper-border); border-radius: 3px; background: var(--paper); color: var(--ink-muted); cursor: pointer; }
 .clock-btn:hover { background: var(--paper-hover); color: var(--ink); }
 .clock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.schedule-result { margin-top: var(--space-sm); font-size: 0.75rem; font-weight: 500; display: flex; flex-direction: column; gap: 0.2rem; }
+.schedule-result { font-size: 0.72rem; font-weight: 500; display: flex; flex-direction: column; gap: 0.15rem; white-space: nowrap; }
 .schedule-result .allow { color: var(--allow); }
 .schedule-result .deny { color: var(--deny); }
 
@@ -194,6 +194,111 @@ body {
 .locked-text strong { color: var(--ink); }
 .locked-text code { font-family: var(--font-mono); font-size: 0.72rem; background: var(--paper-border); padding: 0.05em 0.3em; border-radius: 2px; }
 .actor-name[data-actor="admin"], .actor-name[data-actor="support"] { display: none; }
+
+/* ─── Schedule bar (below controls) ──────────────────────────────── */
+.schedule-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
+.schedule-toggle-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  font-size: 0.76rem;
+}
+.schedule-toggle-compact input[type="checkbox"] {
+  width: 0.85rem;
+  height: 0.85rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.schedule-hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  white-space: nowrap;
+}
+.schedule-hours .hour-input {
+  width: 2.2rem;
+  padding: 0.1rem 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  border: 1px solid var(--paper-border);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  text-align: center;
+}
+.schedule-hours .hour-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+.schedule-hours .hour-sep {
+  padding: 0 0.1rem;
+  color: var(--ink-muted);
+}
+.schedule-dash {
+  padding: 0 0.15rem;
+  color: var(--ink-muted);
+}
+.schedule-tz {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  margin-left: 0.15rem;
+}
+
+.schedule-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+.schedule-clock .clock-time {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink);
+  min-width: 13ch;
+}
+.schedule-clock .clock-buttons {
+  display: inline-flex;
+  gap: 2px;
+}
+.schedule-clock .clock-btn {
+  padding: 0.1rem 0.3rem;
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  font-weight: 500;
+  border: 1px solid var(--paper-border);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.schedule-clock .clock-btn:hover {
+  background: var(--paper-hover);
+  color: var(--ink);
+}
+.schedule-clock .clock-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* ─── Controls bar ──────────────────────────────────────────────────── */
 .controls-bar {

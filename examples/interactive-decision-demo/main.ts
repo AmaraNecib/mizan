@@ -662,6 +662,9 @@ async function setPrincipal(id: PrincipalId): Promise<void> {
   byId("policy-super-admin").hidden = !isSuper;
   byId("policy-locked").hidden = isSuper;
 
+  // Schedule controls visible to Super Admin and Admin (not Support).
+  byId("schedule-bar").hidden = id === "support";
+
   document.querySelectorAll<HTMLSpanElement>(".actor-name").forEach((el) => {
     el.style.display = el.dataset.actor === id ? "inline" : "none";
   });
@@ -816,14 +819,7 @@ async function evaluateSchedule(): Promise<void> {
 function setupScheduleControls(): void {
   const toggle = byId<HTMLInputElement>("toggle-schedule");
   toggle.addEventListener("change", async () => {
-    const checked = toggle.checked;
-    const granted = await attemptManagement(() => {
-      scheduleEnabled = checked;
-    }, `Toggle schedule: ${checked ? "enable" : "disable"}`);
-    if (!granted) {
-      toggle.checked = !checked;
-      return;
-    }
+    scheduleEnabled = toggle.checked;
     await evaluateSchedule();
     saveState();
   });
@@ -835,19 +831,7 @@ function setupScheduleControls(): void {
       if (isNaN(val)) return;
       const max = input.classList.contains("minute") ? 59 : 23;
       input.value = String(Math.max(0, Math.min(max, val)));
-
-      const granted = await attemptManagement(() => {
-        setter(Number(input.value));
-      }, "Adjust schedule hours");
-      if (!granted) {
-        const isHour = !input.classList.contains("minute");
-        input.value = String(
-          id.includes("start")
-            ? (isHour ? scheduleStartH : scheduleStartM)
-            : (isHour ? scheduleEndH : scheduleEndM),
-        );
-        return;
-      }
+      setter(Number(input.value));
       await evaluateSchedule();
       saveState();
     });
