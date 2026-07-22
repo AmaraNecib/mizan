@@ -54,42 +54,7 @@
               </label>
             </div>
             <div class="policy-block">
-              <h3 class="policy-block-title">Temporal schedule</h3>
-              <p class="schedule-note">Hypothetical: <code>reports.read</code> evaluated against a configurable schedule.</p>
-              <label class="policy-toggle" data-permission="schedule">
-                <input type="checkbox" id="toggle-schedule" checked />
-                <span class="toggle-label">Enforce schedule on <code>reports.read</code></span>
-              </label>
-              <div class="schedule-editor">
-                <div class="hour-input-group">
-                  <label class="hour-label" for="schedule-start-h">Start (UTC)</label>
-                  <div class="hour-field">
-                    <input type="number" id="schedule-start-h" class="hour-input" min="0" max="23" value="9" aria-label="Start hour" />
-                    <span class="hour-sep">:</span>
-                    <input type="number" id="schedule-start-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="Start minute" />
-                  </div>
-                </div>
-                <div class="hour-input-group">
-                  <label class="hour-label" for="schedule-end-h">End (UTC)</label>
-                  <div class="hour-field">
-                    <input type="number" id="schedule-end-h" class="hour-input" min="0" max="23" value="17" aria-label="End hour" />
-                    <span class="hour-sep">:</span>
-                    <input type="number" id="schedule-end-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="End minute" />
-                  </div>
-                </div>
-              </div>
-              <div class="clock-controls">
-                <span class="clock-label">Evaluation clock</span>
-                <div class="clock-row">
-                  <span id="clock-display" class="clock-time" aria-live="polite">—</span>
-                  <div class="clock-buttons">
-                    <button id="clock-dec" class="clock-btn" type="button">−1h</button>
-                    <button id="clock-inc" class="clock-btn" type="button">+1h</button>
-                    <button id="clock-reset" class="clock-btn" type="button">reset</button>
-                  </div>
-                </div>
-                <div id="schedule-result" class="schedule-result" aria-live="polite">—</div>
-              </div>
+              <p class="schedule-note">Schedule controls are in the toolbar above, visible to all principals. Only Super Admin can modify them. Controls Admin's <code>cars.delete</code> permission.</p>
             </div>
           </div>
 
@@ -131,7 +96,34 @@
           </div>
         </section>
 
-        <!-- Decision strip (main column, directly below controls) -->
+        <!-- Schedule bar (main column, directly below controls) -->
+        <div id="schedule-bar" class="schedule-bar">
+          <label class="schedule-toggle-compact" title="Enable/disable schedule enforcement">
+            <input type="checkbox" id="toggle-schedule" checked />
+            <span>Schedule <code>cars.delete</code></span>
+          </label>
+          <div class="schedule-hours">
+            <input type="number" id="schedule-start-h" class="hour-input" min="0" max="23" value="9" aria-label="Start hour" />
+            <span class="hour-sep">:</span>
+            <input type="number" id="schedule-start-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="Start minute" />
+            <span class="schedule-dash">—</span>
+            <input type="number" id="schedule-end-h" class="hour-input" min="0" max="23" value="17" aria-label="End hour" />
+            <span class="hour-sep">:</span>
+            <input type="number" id="schedule-end-m" class="hour-input minute" min="0" max="59" value="0" step="15" aria-label="End minute" />
+            <span class="schedule-tz">UTC</span>
+          </div>
+          <div class="schedule-clock">
+            <span id="clock-display" class="clock-time" aria-live="polite">—</span>
+            <div class="clock-buttons">
+              <button id="clock-dec" class="clock-btn" type="button" title="Decrease clock by 1 hour">−1h</button>
+              <button id="clock-inc" class="clock-btn" type="button" title="Increase clock by 1 hour">+1h</button>
+              <button id="clock-reset" class="clock-btn" type="button" title="Reset clock to initial time">reset</button>
+            </div>
+          </div>
+          <div id="schedule-result" class="schedule-result" aria-live="polite">—</div>
+        </div>
+
+        <!-- Decision strip (main column, directly below schedule bar) -->
         <div id="current-decision" class="decision-strip" aria-live="polite" role="status" hidden>
           <span class="decision-actor-label"></span>
           <span class="decision-verb"></span>

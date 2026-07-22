@@ -7,6 +7,19 @@
 - Free tier has rate limits (35 min cooldown). After hitting the limit, sleep and retry.
 - CodeRabbit finds things the pre-push self-review misses (security lens, async assertion gaps). Do not skip it.
 
+## CodeRabbit SUCCESS with no review output requires verification
+
+When the CodeRabbit status check shows SUCCESS but no review summary or inline
+comments are posted, do not assume the review ran or that it was rate-limited.
+Check whether the latest reviewable commit was covered and whether the result
+was rate-limited, unavailable, or skipped incrementally.
+
+**Always**: After triggering `@coderabbitai review`, wait 2-3 minutes, then:
+1. Check PR comments for a review summary
+2. Fetch inline comments: `gh api --paginate repos/<owner>/<repo>/pulls/<num>/comments`
+3. If no valid review evidence exists, report the review as unavailable and
+   require an explicit human decision before proceeding
+
 ## Pre-merge three-step gate
 
 From `docs/engineering-workflow.md`:
