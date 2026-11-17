@@ -47,6 +47,51 @@ describe("@mizan/core direct evaluator", () => {
     expect(result).toEqual({ outcome: "deny", code: "explicit-deny" });
   });
 
+  it("reports an explicit denial before unknown-action recognition", () => {
+    expect(core.evaluate({ action: "files.delete", at: 0, snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "*", effect: "deny" }],
+    } })).toEqual({ outcome: "deny", code: "explicit-deny" });
+  });
+
+  it("treats an empty fact scope as global for a scoped request", () => {
+    expect(core.evaluate({ action: "files.read", at: 0, scope: { tenant: "a" },
+      snapshot: { knownActions: ["files.read"], facts: [
+        { permission: "files.read", effect: "grant", scope: {} },
+      ] },
+    })).toEqual({ outcome: "allow", code: "granted", recognition: "known" });
+  });
+
+  it("ignores an out-of-scope denial while applying a global grant", () => {
+    expect(core.evaluate({ action: "files.read", at: 0, scope: { tenant: "a" },
+      snapshot: { knownActions: ["files.read"], facts: [
+        { permission: "files.read", effect: "grant" },
+        { permission: "files.read", effect: "deny", scope: { tenant: "b" } },
+      ] },
+    })).toEqual({ outcome: "allow", code: "granted", recognition: "known" });
+  });
+
+  it.each([Number.MIN_SAFE_INTEGER, -1, Number.MAX_SAFE_INTEGER])(
+    "accepts safe epoch %s and an inclusive startsAt at that epoch", (at) => {
+      expect(core.evaluate({ action: "files.read", at, snapshot: {
+        knownActions: ["files.read"], facts: [
+          { permission: "files.read", effect: "grant", startsAt: at },
+        ],
+      } })).toEqual({ outcome: "allow", code: "granted", recognition: "known" });
+    },
+  );
+
+  it("treats prototype-named dimensions as ordinary own scope data", () => {
+    const scope = JSON.parse('{"__proto__":"a"}') as core.Scope;
+    const input = { action: "files.read", at: 0, snapshot: {
+      knownActions: ["files.read"], facts: [
+        { permission: "files.read", effect: "grant" as const, scope },
+      ],
+    } };
+    expect(core.evaluate({ ...input, scope }).outcome).toBe("allow");
+    expect(core.evaluate({ ...input, scope: JSON.parse('{"__proto__":"b"}') }).code)
+      .toBe("no-applicable-grant");
+  });
+
   it("applies explicit time and exact-dimension scope", () => {
     const input = {
       action: "files.read",
@@ -187,6 +232,17 @@ describe("@mizan/core direct evaluator", () => {
     ["invalid clock", { action: "files.read", at: Number.NaN, snapshot: { facts: [], knownActions: [] } }],
     ["fractional clock", { action: "files.read", at: 1.5, snapshot: { facts: [], knownActions: [] } }],
     ["unsafe clock", { action: "files.read", at: Number.MAX_SAFE_INTEGER + 1, snapshot: { facts: [], knownActions: [] } }],
+    ["unsafe negative clock", { action: "files.read", at: Number.MIN_SAFE_INTEGER - 1, snapshot: { facts: [], knownActions: [] } }],
+    ["non-array facts", { action: "files.read", at: 0, snapshot: { facts: { length: 0 }, knownActions: [] } }],
+    ["sparse facts", { action: "files.read", at: 0, snapshot: { facts: new Array(1), knownActions: [] } }],
+    ["sparse definitions", { action: "files.read", at: 0, snapshot: { facts: [], knownActions: new Array(1) } }],
+    ["invalid request scope", { action: "files.read", at: 0, scope: { tenant: 1 }, snapshot: { facts: [], knownActions: [] } }],
+    ["empty dimension name", { action: "files.read", at: 0, scope: { "": "a" }, snapshot: { facts: [], knownActions: [] } }],
+    ["unsafe negative start", { action: "files.read", at: 0, snapshot: { facts: [{ permission: "files.read", effect: "grant", startsAt: Number.MIN_SAFE_INTEGER - 1 }], knownActions: [] } }],
+    ["unsafe positive start", { action: "files.read", at: 0, snapshot: { facts: [{ permission: "files.read", effect: "grant", startsAt: Number.MAX_SAFE_INTEGER + 1 }], knownActions: [] } }],
+    ["invalid provenance", { action: "files.read", at: 0, snapshot: { facts: [{ permission: "files.read", effect: "grant", provenanceId: 1 }], knownActions: [] } }],
+    ["symbol-keyed input", { action: "files.read", at: 0, [Symbol("unsupported")]: true, snapshot: { facts: [], knownActions: [] } }],
+    ["trailing-dot pattern", { action: "files.read", at: 0, snapshot: { facts: [{ permission: "files.", effect: "grant" }], knownActions: [] } }],
     ["wildcard query", { action: "files.*", at: 0, snapshot: { facts: [], knownActions: [] } }],
     ["empty segment", { action: "files..read", at: 0, snapshot: { facts: [], knownActions: [] } }],
     ["unknown input field", { action: "files.read", at: 0, policy: {}, snapshot: { facts: [], knownActions: [] } }],
@@ -234,6 +290,34 @@ describe("@mizan/core direct evaluator", () => {
     expect(core.evaluate({ action: "files.delete", at: 0,
       snapshot: { knownActions, facts: [{ permission: "*", effect: "grant" }] },
     })).toEqual({ outcome: "deny", code: "unknown-action" });
+  });
+
+  it("ignores array-subclass prototype method replacements", () => {
+    class Facts extends Array<core.EffectiveFact> {}
+    class Definitions extends Array<string> {}
+    Object.defineProperty(Facts.prototype, "filter", {
+      value: () => [{ permission: "files.read", effect: "grant" }],
+    });
+    Object.defineProperty(Definitions.prototype, "includes", { value: () => true });
+    expect(core.evaluate({ action: "files.read", at: 0, snapshot: {
+      knownActions: ["files.read"], facts: new Facts({ permission: "files.read", effect: "deny" }),
+    } })).toEqual({ outcome: "deny", code: "explicit-deny" });
+    expect(core.evaluate({ action: "files.delete", at: 0, snapshot: {
+      knownActions: new Definitions("files.read"), facts: [{ permission: "*", effect: "grant" }],
+    } })).toEqual({ outcome: "deny", code: "unknown-action" });
+  });
+
+  it("rejects accessor array indices without invoking them", () => {
+    let reads = 0;
+    const facts: core.EffectiveFact[] = [];
+    Object.defineProperty(facts, "0", { get() {
+      reads += 1;
+      return { permission: "files.read", effect: "grant" };
+    } });
+    expect(() => core.evaluate({ action: "files.read", at: 0,
+      snapshot: { knownActions: ["files.read"], facts },
+    })).toThrow(core.AuthorizationFault);
+    expect(reads).toBe(0);
   });
 
   it("does not let a custom iterator hide malformed indexed facts", () => {
