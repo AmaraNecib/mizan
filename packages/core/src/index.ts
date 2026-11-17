@@ -18,14 +18,14 @@ export {
   evaluate,
   isAllowed,
   toPublic,
-} from "./direct-evaluation";
+} from "./direct-evaluation.js";
 export type {
   AuthorizationSnapshot,
   CoreDecision,
   EffectiveFact,
   EvaluationInput,
   Scope,
-} from "./direct-evaluation";
+} from "./direct-evaluation.js";
 
 // ─── Core types ────────────────────────────────────────────────────────────
 

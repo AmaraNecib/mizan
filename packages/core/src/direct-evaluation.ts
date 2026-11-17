@@ -1,3 +1,4 @@
+/** Exact host-defined dimensions. Omission means global applicability. */
 export type Scope = Readonly<Record<string, string>>;
 
 export type EffectiveFact = {
@@ -32,6 +33,7 @@ export type CoreDecision =
       readonly code: "unknown-action" | "explicit-deny" | "no-applicable-grant";
     };
 
+/** Invalid direct input or unsupported fields, distinct from authorization refusal. */
 export class AuthorizationFault extends TypeError {
   readonly code = "invalid-input" as const;
 
@@ -62,7 +64,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function assertDataProperties(value: object, name: string): void {
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      invalid(`${name} must contain data properties, not accessors`);
+    }
+  }
+}
+
 function assertKeys(value: Record<string, unknown>, allowed: Set<string>, name: string): void {
+  assertDataProperties(value, name);
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== "string" || !allowed.has(key)) {
       invalid(`${name} contains an unsupported field`);
@@ -87,6 +99,7 @@ function isPattern(value: unknown): value is string {
 function validateScope(value: unknown, name: string): asserts value is Scope | undefined {
   if (value === undefined) return;
   if (!isRecord(value)) invalid(`${name} must be an object of non-empty string dimensions`);
+  assertDataProperties(value, name);
   for (const dimension of Reflect.ownKeys(value)) {
     const entry = typeof dimension === "string" ? value[dimension] : undefined;
     if (typeof dimension !== "string" || dimension.length === 0 || typeof entry !== "string" || entry.length === 0) {
@@ -107,6 +120,8 @@ function validateInput(value: unknown): asserts value is EvaluationInput {
   assertKeys(snapshot, SNAPSHOT_KEYS, "Snapshot");
   if (!Array.isArray(snapshot.facts)) invalid("Snapshot facts must be an array");
   if (!Array.isArray(snapshot.knownActions)) invalid("Snapshot knownActions must be an array");
+  assertDataProperties(snapshot.facts, "Snapshot facts");
+  assertDataProperties(snapshot.knownActions, "Snapshot knownActions");
 
   for (const action of snapshot.knownActions) {
     if (!isConcreteKey(action)) invalid("Known actions must contain concrete permission keys");
@@ -143,9 +158,14 @@ function matches(action: string, pattern: string): boolean {
 }
 
 function isInScope(factScope: Scope | undefined, requestScope: Scope | undefined): boolean {
-  if (factScope === undefined || Object.keys(factScope).length === 0) return true;
+  if (factScope === undefined) return true;
+  const dimensions = Object.getOwnPropertyNames(factScope);
+  if (dimensions.length === 0) return true;
   if (requestScope === undefined) return false;
-  return Object.entries(factScope).every(([dimension, value]) => requestScope[dimension] === value);
+  return dimensions.every((dimension) =>
+    Object.prototype.hasOwnProperty.call(requestScope, dimension)
+      && requestScope[dimension] === factScope[dimension]
+  );
 }
 
 function isActive(fact: EffectiveFact, at: number): boolean {
@@ -153,6 +173,12 @@ function isActive(fact: EffectiveFact, at: number): boolean {
     && (fact.expiresAt === undefined || at < fact.expiresAt);
 }
 
+/**
+ * Decide synchronously from a complete trusted snapshot at an explicit instant.
+ * Unknown keys deny even under wildcards. Active denials win over grants.
+ * Records must be plain or null-prototype data objects; accessors are rejected.
+ * Namespace patterns match descendants, unlike the legacy matchesPermission helper.
+ */
 export function evaluate(input: EvaluationInput): CoreDecision {
   validateInput(input);
 
@@ -172,10 +198,12 @@ export function evaluate(input: EvaluationInput): CoreDecision {
   return { outcome: "deny", code: "no-applicable-grant" };
 }
 
+/** Project a trusted evaluator result to its enforcement boolean. */
 export function isAllowed(decision: CoreDecision): boolean {
   return decision.outcome === "allow";
 }
 
+/** Expose only the enforcement boolean, without internal reasons or provenance. */
 export function toPublic(decision: CoreDecision): { readonly allowed: boolean } {
   return { allowed: isAllowed(decision) };
 }
