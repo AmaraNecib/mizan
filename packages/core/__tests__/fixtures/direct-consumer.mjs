@@ -1,6 +1,6 @@
 // Run after building core: node packages/core/__tests__/fixtures/direct-consumer.mjs
 import assert from "node:assert/strict";
-import { evaluate, isAllowed, toPublic, AuthorizationFault } from "../../dist/index.js";
+import { evaluate, isAllowed, toPublic, AuthorizationFault } from "@mizan/core";
 
 const decision = evaluate({
   action: "employees:read",

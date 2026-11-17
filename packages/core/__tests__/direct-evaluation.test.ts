@@ -221,6 +221,44 @@ describe("@mizan/core direct evaluator", () => {
     expect(core.toPublic({ ...decision, provenance: "internal" } as core.CoreDecision)).toEqual({ allowed: false });
   });
 
+  it("does not dispatch through caller-supplied array methods", () => {
+    const facts = [{ permission: "files.read", effect: "deny" as const }];
+    Object.defineProperty(facts, "filter", {
+      value: () => [{ permission: "files.read", effect: "grant" }],
+    });
+    expect(core.evaluate({ action: "files.read", at: 0,
+      snapshot: { knownActions: ["files.read"], facts },
+    })).toEqual({ outcome: "deny", code: "explicit-deny" });
+    const knownActions = ["files.read"];
+    Object.defineProperty(knownActions, "includes", { value: () => true });
+    expect(core.evaluate({ action: "files.delete", at: 0,
+      snapshot: { knownActions, facts: [{ permission: "*", effect: "grant" }] },
+    })).toEqual({ outcome: "deny", code: "unknown-action" });
+  });
+
+  it("does not let a custom iterator hide malformed indexed facts", () => {
+    const facts = [{ permission: "files.read", effect: "grant", schedule: {} }];
+    Object.defineProperty(facts, Symbol.iterator, { value: function* () {} });
+    expect(() => core.evaluate({ action: "files.read", at: 0,
+      snapshot: { knownActions: ["files.read"], facts },
+    } as never)).toThrow(core.AuthorizationFault);
+  });
+
+  it("evaluates copied scope data rather than repeatedly invoking proxy reads", () => {
+    let reads = 0;
+    const scope = new Proxy({ tenant: "a" }, {
+      get(target, key, receiver) {
+        if (key === "tenant") return ++reads === 1 ? "a" : "b";
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(core.evaluate({ action: "files.read", at: 0, scope: { tenant: "b" },
+      snapshot: { knownActions: ["files.read"], facts: [
+        { permission: "files.read", effect: "grant", scope },
+      ] },
+    })).toEqual({ outcome: "deny", code: "no-applicable-grant" });
+  });
+
   it("projects only the public allowed boolean", () => {
     const decision = core.evaluate({
       action: "files.read",

@@ -96,43 +96,69 @@ function isPattern(value: unknown): value is string {
   return isConcreteKey(value);
 }
 
-function validateScope(value: unknown, name: string): asserts value is Scope | undefined {
-  if (value === undefined) return;
-  if (!isRecord(value)) invalid(`${name} must be an object of non-empty string dimensions`);
-  assertDataProperties(value, name);
-  for (const dimension of Reflect.ownKeys(value)) {
-    const entry = typeof dimension === "string" ? value[dimension] : undefined;
-    if (typeof dimension !== "string" || dimension.length === 0 || typeof entry !== "string" || entry.length === 0) {
-      invalid(`${name} must be an object of non-empty string dimensions`);
+function copyRecord(value: unknown, name: string): Record<string, unknown> {
+  if (!isRecord(value)) invalid(`${name} must be a plain data object`);
+  const copy: Record<string, unknown> = Object.create(null);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (typeof key !== "string" || descriptor === undefined || !("value" in descriptor)) {
+      invalid(`${name} must contain string-keyed data properties, not accessors`);
     }
+    Object.defineProperty(copy, key, { value: descriptor.value, enumerable: true });
   }
+  return copy;
 }
 
-function validateInput(value: unknown): asserts value is EvaluationInput {
-  if (!isRecord(value)) invalid("Evaluation input must be an object");
+function copyArray(value: unknown, name: string): unknown[] {
+  if (!Array.isArray(value)) invalid(`${name} must be an array`);
+  assertDataProperties(value, name);
+  const length = Object.getOwnPropertyDescriptor(value, "length")?.value as unknown;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) {
+    invalid(`${name} must have a valid length`);
+  }
+  const copy: unknown[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined || !("value" in descriptor)) {
+      invalid(`${name} must contain indexed data properties without holes`);
+    }
+    copy.push(descriptor.value);
+  }
+  return copy;
+}
+
+function normalizeScope(value: unknown, name: string): Scope | undefined {
+  if (value === undefined) return undefined;
+  const copy = copyRecord(value, name);
+  for (const [dimension, entry] of Object.entries(copy)) {
+    if (dimension.length === 0 || typeof entry !== "string" || entry.length === 0) {
+      invalid(`${name} must contain non-empty string dimensions`);
+    }
+  }
+  return copy as Scope;
+}
+
+function normalizeInput(input: unknown): EvaluationInput {
+  const value = copyRecord(input, "Evaluation input");
   assertKeys(value, INPUT_KEYS, "Evaluation input");
   if (!isConcreteKey(value.action)) invalid("Action must be a concrete permission key");
   if (!Number.isSafeInteger(value.at)) invalid("Evaluation time must be a safe integer epoch timestamp");
-  validateScope(value.scope, "Request scope");
+  const scope = normalizeScope(value.scope, "Request scope");
 
-  const snapshot = value.snapshot;
-  if (!isRecord(snapshot)) invalid("Snapshot must be an object");
+  const snapshot = copyRecord(value.snapshot, "Snapshot");
   assertKeys(snapshot, SNAPSHOT_KEYS, "Snapshot");
-  if (!Array.isArray(snapshot.facts)) invalid("Snapshot facts must be an array");
-  if (!Array.isArray(snapshot.knownActions)) invalid("Snapshot knownActions must be an array");
-  assertDataProperties(snapshot.facts, "Snapshot facts");
-  assertDataProperties(snapshot.knownActions, "Snapshot knownActions");
-
-  for (const action of snapshot.knownActions) {
+  const knownActions = copyArray(snapshot.knownActions, "Snapshot knownActions");
+  for (const action of knownActions) {
     if (!isConcreteKey(action)) invalid("Known actions must contain concrete permission keys");
   }
 
-  for (const fact of snapshot.facts) {
-    if (!isRecord(fact)) invalid("Facts must be objects");
+  const facts: EffectiveFact[] = [];
+  for (const entry of copyArray(snapshot.facts, "Snapshot facts")) {
+    const fact = copyRecord(entry, "Fact");
     assertKeys(fact, FACT_KEYS, "Fact");
     if (!isPattern(fact.permission)) invalid("Fact permission must be a supported permission pattern");
     if (fact.effect !== "grant" && fact.effect !== "deny") invalid("Fact effect must be grant or deny");
-    validateScope(fact.scope, "Fact scope");
+    const factScope = normalizeScope(fact.scope, "Fact scope");
     if (fact.startsAt !== undefined && !Number.isSafeInteger(fact.startsAt)) {
       invalid("Fact startsAt must be a safe integer epoch timestamp");
     }
@@ -145,7 +171,21 @@ function validateInput(value: unknown): asserts value is EvaluationInput {
     if (fact.provenanceId !== undefined && typeof fact.provenanceId !== "string") {
       invalid("Fact provenanceId must be a string");
     }
+    facts.push({
+      permission: fact.permission,
+      effect: fact.effect,
+      ...(factScope === undefined ? {} : { scope: factScope }),
+      ...(fact.startsAt === undefined ? {} : { startsAt: fact.startsAt as number }),
+      ...(fact.expiresAt === undefined ? {} : { expiresAt: fact.expiresAt as number }),
+      ...(fact.provenanceId === undefined ? {} : { provenanceId: fact.provenanceId as string }),
+    });
   }
+  return {
+    action: value.action,
+    at: value.at as number,
+    ...(scope === undefined ? {} : { scope }),
+    snapshot: { knownActions: knownActions as string[], facts },
+  };
 }
 
 function matches(action: string, pattern: string): boolean {
@@ -177,12 +217,11 @@ function isActive(fact: EffectiveFact, at: number): boolean {
  * Decide synchronously from a complete trusted snapshot at an explicit instant.
  * Unknown keys deny even under wildcards. Active denials win over grants.
  * Records must be plain or null-prototype data objects; accessors are rejected.
+ * Evaluate validated local copies, never caller array methods or repeated property reads.
  * Namespace patterns match descendants, unlike the legacy matchesPermission helper.
  */
 export function evaluate(input: EvaluationInput): CoreDecision {
-  validateInput(input);
-
-  const { action, snapshot, at, scope } = input;
+  const { action, snapshot, at, scope } = normalizeInput(input);
   const known = snapshot.knownActions.includes(action);
   const matching = snapshot.facts.filter((fact) =>
     matches(action, fact.permission) && isInScope(fact.scope, scope) && isActive(fact, at)
