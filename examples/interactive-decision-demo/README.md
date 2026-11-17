@@ -28,7 +28,7 @@ Then open **http://localhost:3000** (or whatever port your server uses) in a bro
 
 | Concept | Implementation |
 |---------|---------------|
-| **Three principals** | Super Admin (full access + policy management), Admin (full cars access), Support (restricted) |
+| **Three principals** | Super Admin (full access + policy management), Admin (read/create/update plus schedule-controlled delete), Support (restricted) |
 | **Protected actions** | Every cars-table click calls `decide()` through Mizan before mutating state |
 | **Denial reasons** | `matching-denial` for the delete override, `no-grant` for missing update permission |
 | **Decision banner** | Current decision shown above the fold: actor, action, ALLOW/DENY, reason |
@@ -45,16 +45,20 @@ Then open **http://localhost:3000** (or whatever port your server uses) in a bro
 | `cars.read` | ✅ | ✅ | ✅ |
 | `cars.create` | ✅ | ✅ | ✅ |
 | `cars.update` | ✅ | ✅ | ❌ `no-grant` |
-| `cars.delete` | ✅ | ✅ | ❌ `matching-denial` |
+| `cars.delete` | ✅ | ✅ (schedule) | ❌ `matching-denial` |
 | `manage-policy` | ✅ | ❌ `no-grant` | ❌ `no-grant` |
-| `reports.read` | ✅ (schedule) | ❌ `no-grant` | ❌ `no-grant` |
-
 ## How the schedule works
 
-Super Admin can enable/disable the schedule restriction on `reports.read` and
-adjust the UTC business-hours window. A controllable evaluation clock advances
-or rewinds time — within hours the permission allows, outside it returns
-`outside-schedule`. Admin and Support cannot modify these settings.
+Super Admin can enable/disable the schedule restriction on Admin's `cars.delete`
+and adjust the UTC business-hours window. A controllable evaluation clock
+advances or rewinds time — within hours the permission allows, outside it
+returns `outside-schedule`. Admin and Support can see the schedule status but
+cannot modify the settings.
+
+The schedule restriction is enforced by the real Mizan `cars.delete` decision
+evaluated at the demo clock time. Changes to the schedule are separately gated
+by the real Mizan `manage-policy` decision, so non-Super Admin users are blocked
+by the authorization engine, not just by disabled UI controls.
 
 ## Stack
 
