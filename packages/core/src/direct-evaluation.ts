@@ -316,10 +316,9 @@ function isActive(fact: EffectiveFact, at: number): boolean {
  * Evaluate validated local copies, never caller array methods or repeated property reads.
  * Namespace patterns match descendants, unlike the legacy matchesPermission helper.
  */
-export function evaluate(input: EvaluationInput & { readonly policy?: undefined }): CoreDecision;
-export function evaluate<const Levels extends readonly string[]>(
+export function evaluate<const Levels extends readonly string[] = readonly DefaultRisk[]>(
   input: Omit<EvaluationInput<Levels[number]>, "policy"> & {
-    readonly policy: { readonly riskLevels: Levels }
+    readonly policy?: { readonly riskLevels: Levels }
       & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels">;
   },
 ): CoreDecision;
