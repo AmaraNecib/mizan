@@ -1,0 +1,10 @@
+$ bun run --filter='@mizan/*' build
+@mizan/core build: Built ESM core consumer passed
+@mizan/core build: Generic role administration adapter mapping passed
+@mizan/core build: Exited with code 0
+@mizan/memory build: Exited with code 0
+@mizan/interactive-decision-demo build: Bundled 4 modules in 16ms
+@mizan/interactive-decision-demo build: 
+@mizan/interactive-decision-demo build:   main.js  40.95 KB  (entry point)
+@mizan/interactive-decision-demo build: 
+@mizan/interactive-decision-demo build: Exited with code 0

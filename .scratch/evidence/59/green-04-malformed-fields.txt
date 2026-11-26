@@ -1,0 +1,27 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+(pass) expandRoles > intersects role permission and assignment scope and validity [1.33ms]
+(pass) expandRoles > preserves intersected restrictions on denials and omits empty intersections [0.81ms]
+(pass) expandRoles > appends validated direct facts without mutating caller input [0.13ms]
+(pass) expandRoles > validates unused roles, duplicate definitions, and missing assignment references [0.25ms]
+52 |   test("rejects malformed objects and arrays instead of invoking caller behavior", () => {
+53 |     const accessor = Object.defineProperty({}, "permission", { get: () => "x.read", enumerable: true });
+54 |     expect(() => expandRoles([{ name: "reader", permissions: [accessor as never] }], [])).toThrow(/accessors/);
+55 |     expect(() => expandRoles([{ name: "reader", permissions: [{ permission: "x.read", effect: "grant" }] }], [,] as never)).toThrow(/sparse/);
+56 |     expect(() => expandRoles([{ name: "reader", permissions: [{ permission: "x.read", effect: "grant" }] }], [{ roleName: "reader", schedule: undefined } as never])).toThrow(/unsupported field/);
+57 |     expect(() => expandRoles([{ name: "reader", permissions: [{ permission: "x.read", effect: "grant" }] }], [], [{ permission: "x.read", effect: "grant", [Symbol("extra")]: true } as never])).toThrow(/unsupported field/);
+                                                                                                                                                                                                      ^
+error: expect(received).toThrow(expected)
+
+Expected pattern: /unsupported field/
+Received message: "Direct fact must contain string-keyed data properties, not accessors"
+
+      at <anonymous> (D:\worktrees\mizan\t3-b8d90cb9-1dfb5d5c4c41c495\packages\core\__tests__\normalization.test.ts:57:194)
+(fail) expandRoles > rejects malformed objects and arrays instead of invoking caller behavior [2.51ms]
+(pass) expandRoles > bounds diagnostics when many role facts are omitted [0.80ms]
+
+ 5 pass
+ 1 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [29.00ms]

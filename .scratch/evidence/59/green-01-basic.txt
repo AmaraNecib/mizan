@@ -1,0 +1,40 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+ 6 |     const result = expandRoles(
+ 7 |       [{ name: "editor", permissions: [{ permission: "files.edit", effect: "grant", scope: { org: "north" }, startsAt: 10, expiresAt: 90 }] }],
+ 8 |       [{ roleName: "editor", scope: { org: "north", team: "red" }, startsAt: 20, expiresAt: 80 }],
+ 9 |     );
+10 | 
+11 |     expect(result).toEqual({
+                        ^
+error: expect(received).toEqual(expected)
+
+  {
+    "diagnostics": [],
+    "facts": [
+      {
+        "effect": "grant",
+        "expiresAt": 80,
+        "permission": "files.edit",
+        "scope": {
+          "org": "north",
+          "team": "red",
+        },
+        "startsAt": 20,
+      },
+    ],
++   "omittedDiagnostics": 0,
+  }
+
+- Expected  - 0
++ Received  + 1
+
+      at <anonymous> (D:\worktrees\mizan\t3-b8d90cb9-1dfb5d5c4c41c495\packages\core\__tests__\normalization.test.ts:11:20)
+(fail) expandRoles > expands an assigned role into a scoped, time-bounded effective fact [6.65ms]
+(pass) expandRoles > keeps direct facts unchanged semantically and does not mutate inputs [3.56ms]
+
+ 1 pass
+ 1 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [36.00ms]

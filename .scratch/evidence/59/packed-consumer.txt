@@ -1,0 +1,4 @@
+Generic role administration adapter mapping passed
+
+Packed standalone runtime and public types passed. Consumer: C:\Users\sensei57\AppData\Local\Temp\mizan-59-packed-v11NAa
+Archive: C:\Users\sensei57\AppData\Local\Temp\mizan-59-packed-v11NAa\mizan-core-0.1.0.tgz. npm integrity: sha512-9TU9f2hn5PA1DUQUeJxlsYN0Z2mIGxQXUWVby340GruBREhnAsXrMcYiMRbPFAt2F0k9eCSsB3ddAvIArziTjw==

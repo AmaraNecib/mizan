@@ -1,0 +1,34 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+(pass) expandRoles > intersects role permission and assignment scope and validity [3.39ms]
+(pass) expandRoles > preserves intersected restrictions on denials and omits empty intersections [1.19ms]
+(pass) expandRoles > appends validated direct facts without mutating caller input [0.19ms]
+(pass) expandRoles > validates unused roles, duplicate definitions, and missing assignment references [0.41ms]
+(pass) expandRoles > rejects malformed objects and arrays instead of invoking caller behavior [1.51ms]
+60 |     expect(emptyWindow.diagnostics).toEqual([{ code: "empty-validity", roleName: "reader", permission: "x.read" }]);
+61 |   });
+62 | 
+63 |   test("rejects numeric-looking extra properties outside an array's indexed entries", () => {
+64 |     const assignments = Object.assign([], { "4294967295": { roleName: "reader", schedule: {} } });
+65 |     expect(() => expandRoles([], assignments)).toThrow(AuthorizationFault);
+                                                    ^
+error: expect(received).toThrow(expected)
+
+Expected constructor: AuthorizationFault
+
+Received function did not throw
+Received value: {
+  facts: [],
+  diagnostics: [],
+  omittedDiagnostics: 0,
+}
+
+      at <anonymous> (D:\worktrees\mizan\t3-b0df0662-22d4562ec3cd5ac5\packages\core\__tests__\normalization.test.ts:65:48)
+(fail) expandRoles > rejects numeric-looking extra properties outside an array's indexed entries [1.17ms]
+(pass) expandRoles > bounds diagnostics when many role facts are omitted [1.46ms]
+
+ 6 pass
+ 1 fail
+ 21 expect() calls
+Ran 7 tests across 1 file. [87.00ms]

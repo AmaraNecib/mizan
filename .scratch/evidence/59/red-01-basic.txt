@@ -1,0 +1,14 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../src/normalization.js' from 'D:\worktrees\mizan\t3-b8d90cb9-1dfb5d5c4c41c495\packages\core\__tests__\normalization.test.ts'
+-------------------------------
+
+
+ 0 pass
+ 1 fail
+ 1 error
+Ran 1 test across 1 file. [15.00ms]

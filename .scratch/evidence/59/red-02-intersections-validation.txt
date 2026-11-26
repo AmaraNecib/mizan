@@ -1,0 +1,57 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+(pass) expandRoles > intersects role permission and assignment scope and validity [1.31ms]
+23 |         { permission: "records.write", effect: "deny", startsAt: 40 },
+24 |       ] }],
+25 |       [{ roleName: "auditor", startsAt: 10, expiresAt: 30, scope: { region: "east" } }],
+26 |     );
+27 | 
+28 |     expect(result.facts).toEqual([{ permission: "records.read", effect: "deny", startsAt: 10, expiresAt: 30 }]);
+                              ^
+error: expect(received).toEqual(expected)
+
+  [
+    {
+      "effect": "deny",
+      "expiresAt": 30,
+      "permission": "records.read",
++     "scope": {
++       "region": "east",
++     },
+      "startsAt": 10,
+    },
+  ]
+
+- Expected  - 0
++ Received  + 3
+
+      at <anonymous> (D:\worktrees\mizan\t3-b8d90cb9-1dfb5d5c4c41c495\packages\core\__tests__\normalization.test.ts:28:26)
+(fail) expandRoles > preserves intersected restrictions on denials and omits empty intersections [0.55ms]
+(pass) expandRoles > appends validated direct facts without mutating caller input [0.13ms]
+(pass) expandRoles > validates unused roles, duplicate definitions, and missing assignment references [0.27ms]
+51 | 
+52 |   test("rejects malformed objects and arrays instead of invoking caller behavior", () => {
+53 |     const accessor = Object.defineProperty({}, "permission", { get: () => "x.read", enumerable: true });
+54 |     expect(() => expandRoles([{ name: "reader", permissions: [accessor as never] }], [])).toThrow(/accessors/);
+55 |     expect(() => expandRoles([{ name: "reader", permissions: [{ permission: "x.read", effect: "grant" }] }], [,] as never)).toThrow(/sparse/);
+56 |     expect(() => expandRoles([{ name: "reader", permissions: [{ permission: "x.read", effect: "grant", startsAt: 4, expiresAt: 4 }] }], [{ roleName: "reader" }])).toMatchObject({ name: "AuthorizationFault" });
+                                                                                                                                                                        ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "name": "AuthorizationFault",
+- }
++ [Function]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (D:\worktrees\mizan\t3-b8d90cb9-1dfb5d5c4c41c495\packages\core\__tests__\normalization.test.ts:56:164)
+(fail) expandRoles > rejects malformed objects and arrays instead of invoking caller behavior [1.03ms]
+(pass) expandRoles > bounds diagnostics when many role facts are omitted [1.49ms]
+
+ 4 pass
+ 2 fail
+ 15 expect() calls
+Ran 6 tests across 1 file. [18.00ms]

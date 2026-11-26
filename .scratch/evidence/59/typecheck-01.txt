@@ -1,0 +1,8 @@
+$ bun run --filter='@mizan/*' typecheck
+@mizan/core typecheck: bun: command not found: tsc
+@mizan/core typecheck: Exited with code 1
+@mizan/memory typecheck: bun: command not found: tsc
+@mizan/memory typecheck: Exited with code 1
+@mizan/interactive-decision-demo typecheck: bun: command not found: tsc
+@mizan/interactive-decision-demo typecheck: Exited with code 1
+error: script "typecheck" exited with code 1
