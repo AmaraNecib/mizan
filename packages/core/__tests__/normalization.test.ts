@@ -158,6 +158,25 @@ describe("expandRoles", () => {
     expect(expandRoles([], [])).toEqual({ facts: [], diagnostics: [], omittedDiagnostics: 0 });
   });
 
+  test.each(["permission-source", ""])("permission provenance %j takes precedence over assignment provenance", (provenanceId) => {
+    const { facts } = expandRoles(
+      [{ name: "reader", permissions: [{ permission: "files.read", effect: "grant", provenanceId }] }],
+      [{ roleName: "reader", provenanceId: "assignment-source" }],
+    );
+    expect(facts).toEqual([{ permission: "files.read", effect: "grant", provenanceId }]);
+  });
+
+  test("missing roles throw the stable public input fault category", () => {
+    let caught: unknown;
+    try {
+      expandRoles([], [{ roleName: "missing" }]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AuthorizationFault);
+    expect((caught as AuthorizationFault).code).toBe("invalid-input");
+  });
+
   test("bounds diagnostics when many role facts are omitted", () => {
     const permissions = Array.from({ length: 24 }, (_, index) => ({ permission: `files.${index}`, effect: "grant" as const, scope: { org: "north" } }));
     const result = expandRoles([{ name: "reader", permissions }], [{ roleName: "reader", scope: { org: "south" } }]);
