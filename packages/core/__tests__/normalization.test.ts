@@ -54,7 +54,24 @@ describe("expandRoles", () => {
     expect(decide(startsAt - 1).code).toBe("no-applicable-grant");
     expect(decide(expiresAt).code).toBe("no-applicable-grant");
     expect(decide(startsAt, "south").code).toBe("no-applicable-grant");
-    expect(decide(Date.parse("2024-06-17T15:00:00Z")).code).toBe("no-applicable-grant");
+  });
+
+  test.each(["grant", "deny"] as const)("requires both role schedules for %s without an absolute bound masking either restriction", (effect) => {
+    const { facts } = expandRoles(
+      [{ name: "editor", permissions: [{ permission: "files.edit", effect, schedules: [{ timezone: "America/New_York", dates: [{ date: "2024-01-01", times: [{ start: "07:00", end: "15:00" }] }] }] }] }],
+      [{ roleName: "editor", schedules: [{ timezone: "UTC", dates: [{ date: "2024-01-01", times: [{ start: "09:00", end: "17:00" }] }] }] }],
+      effect === "deny" ? [{ permission: "files.edit", effect: "grant" }] : [],
+    );
+    for (const [instant, bothActive] of [
+      ["2024-01-01T11:00:00Z", false],
+      ["2024-01-01T13:00:00Z", true],
+      ["2024-01-01T18:00:00Z", false],
+    ] as const) {
+      const decision = evaluate({ action: "files.edit", at: Date.parse(instant), snapshot: { facts, knownActions: ["files.edit"] } });
+      expect(decision.code).toBe(effect === "deny"
+        ? bothActive ? "explicit-deny" : "granted"
+        : bothActive ? "granted" : "no-applicable-grant");
+    }
   });
 
   test("retains recurring restrictions on role denials and direct facts", () => {

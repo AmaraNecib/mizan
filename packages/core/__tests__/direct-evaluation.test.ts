@@ -58,6 +58,40 @@ describe("@mizan/core direct evaluator", () => {
     expect(evaluateFact([{ timezone: "UTC", weeks: [] }]).code).toBe("no-applicable-grant");
   });
 
+  it("treats equal endpoints as empty for weekly and date grants and denials", () => {
+    const schedules: readonly core.ActivitySchedule[] = [
+      { timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "09:00" }] }] },
+      { timezone: "UTC", dates: [{ date: "2024-01-01", times: [{ start: "09:00", end: "09:00" }] }] },
+    ];
+    for (const schedule of schedules) for (const effect of ["grant", "deny"] as const) {
+      const facts: core.EffectiveFact[] = [{ permission: "files.read", effect, schedules: [schedule] }];
+      if (effect === "deny") facts.push({ permission: "files.read", effect: "grant" });
+      for (const instant of ["2024-01-01T08:59:59.999Z", "2024-01-01T09:00:00Z", "2024-01-01T09:00:00.001Z"]) {
+        expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot: { knownActions: ["files.read"], facts } }).code)
+          .toBe(effect === "grant" ? "no-applicable-grant" : "granted");
+      }
+    }
+  });
+
+  it("anchors dated overnight windows across the year boundary only to the adjacent date", () => {
+    const snapshot: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", dates: [{ date: "2024-12-31", times: [{ start: "22:00", end: "02:00" }] }] }] }] };
+    for (const [instant, outcome] of [
+      ["2024-12-31T01:00:00Z", "deny"], ["2024-12-31T22:00:00Z", "allow"],
+      ["2025-01-01T01:59:59.999Z", "allow"], ["2025-01-01T02:00:00Z", "deny"],
+      ["2025-01-02T01:00:00Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot }).outcome).toBe(outcome);
+  });
+
+  it("rejects sparse nested times and accessors without invoking caller code", () => {
+    const sparseTimes = new Array(1);
+    let reads = 0;
+    const accessorWeek = Object.defineProperty({ day: "monday" }, "times", { get() { reads += 1; return []; } });
+    for (const week of [{ day: "monday", times: sparseTimes }, accessorWeek]) {
+      expect(() => core.evaluate({ action: "unknown.action", at: 0, snapshot: { knownActions: [], facts: [{ permission: "other.read", effect: "deny", schedules: [{ timezone: "UTC", weeks: [week] }] }] } } as never)).toThrow(core.AuthorizationFault);
+    }
+    expect(reads).toBe(0);
+  });
+
   it("matches weekly and dated overnight windows on the immediately following local date", () => {
     const evaluateFact = (schedule: unknown, at: number) => core.evaluate({ action: "files.read", at,
       snapshot: { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [schedule] }] },
@@ -162,8 +196,21 @@ describe("@mizan/core direct evaluator", () => {
     } }).code).toBe("no-applicable-grant");
   });
 
-  it("rejects scheduled instants outside Date range as AuthorizationFault", () => {
-    expect(() => core.evaluate({ action: "files.read", at: Number.MAX_SAFE_INTEGER, snapshot: {
+  it("keeps CE denials and overnight windows distinct from BCE calendar dates", () => {
+    const denial: core.EffectiveFact = { permission: "files.read", effect: "deny", schedules: [{ timezone: "UTC", dates: [{ date: "0001-01-01", times: [{ start: "00:00", end: "01:00" }] }] }] };
+    const snapshot: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant" }, denial] };
+    expect(core.evaluate({ action: "files.read", at: Date.parse("0000-01-01T00:30:00Z"), snapshot }).code).toBe("granted");
+    expect(core.evaluate({ action: "files.read", at: Date.parse("0001-01-01T00:30:00Z"), snapshot }).code).toBe("explicit-deny");
+    const overnight: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", dates: [{ date: "0001-01-01", times: [{ start: "22:00", end: "02:00" }] }] }] }] };
+    for (const [instant, outcome] of [
+      ["0000-12-31T23:00:00Z", "deny"], ["0001-01-01T01:00:00Z", "deny"],
+      ["0001-01-01T22:00:00Z", "allow"], ["0001-01-02T01:00:00Z", "allow"],
+      ["0001-01-02T02:00:00Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot: overnight }).outcome).toBe(outcome);
+  });
+
+  it.each([Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER])("rejects scheduled instant %s outside Date range as AuthorizationFault", (at) => {
+    expect(() => core.evaluate({ action: "files.read", at, snapshot: {
       knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", weeks: [] }] }],
     } })).toThrow(core.AuthorizationFault);
   });
