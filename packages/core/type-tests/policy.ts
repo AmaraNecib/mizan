@@ -10,6 +10,10 @@ function check(input: EvaluationInput) { return evaluate(input); }
 check(facts);
 function checkCustom(input: EvaluationInput<"custom">) { return evaluate(input); }
 checkCustom({ ...facts, policy: { riskLevels: ["custom"] } });
+// @ts-expect-error annotating an input does not register its custom risk
+checkCustom({ ...facts, actionPolicy: { risk: "custom" } });
+// @ts-expect-error an explicit type argument does not register a custom risk either
+evaluate<readonly ["custom"]>({ ...facts, actionPolicy: { risk: "custom" } });
 // @ts-expect-error even a built-in label must be registered in an explicit policy
 evaluate({ ...facts, policy: { riskLevels: ["low"] }, actionPolicy: { risk: "high" } });
 evaluate({ ...facts, actionPolicy: { risk: "high", unknownPermissions: "deny" } });

@@ -28,14 +28,17 @@ export type AuthorizationPolicy<Risk extends string = DefaultRisk> = {
   readonly byRisk?: Readonly<Partial<Record<Risk, RecognitionSettings>>>;
 };
 
+// Only built-in risks are registered when the caller omits a policy.
+type Registration<Risk extends string, Policy> =
+  [Risk] extends [DefaultRisk] ? { readonly policy?: Policy } : { readonly policy: Policy };
+
 export type EvaluationInput<Risk extends string = DefaultRisk> = {
   readonly action: string;
   readonly snapshot: AuthorizationSnapshot;
   readonly at: number;
   readonly scope?: Scope;
-  readonly policy?: AuthorizationPolicy<Risk>;
   readonly actionPolicy?: ActionPolicy<Risk>;
-};
+} & Registration<Risk, AuthorizationPolicy<Risk>>;
 
 export type CoreDecision =
   | {
@@ -317,12 +320,12 @@ function isActive(fact: EffectiveFact, at: number): boolean {
  * Namespace patterns match descendants, unlike the legacy matchesPermission helper.
  */
 export function evaluate<const Levels extends readonly string[] = readonly DefaultRisk[]>(
-  input: Omit<EvaluationInput<Levels[number]>, "policy"> & {
-    readonly policy?: { readonly riskLevels: Levels }
-      & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels">;
-  },
+  input: Omit<EvaluationInput<Levels[number]>, "policy"> & Registration<
+    Levels[number],
+    { readonly riskLevels: Levels } & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels">
+  >,
 ): CoreDecision;
-export function evaluate(input: EvaluationInput<string>): CoreDecision {
+export function evaluate(input: unknown): CoreDecision {
   const { action, snapshot, at, scope, policy } = normalizeInput(input);
   const riskMatches = policy === undefined ? [] : Object.entries(policy.risk).filter(([pattern]) => matches(action, pattern));
   riskMatches.sort(([a], [b]) => specificity(b) - specificity(a));
