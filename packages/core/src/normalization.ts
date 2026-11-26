@@ -215,6 +215,6 @@ export function expandRoles(
       });
     }
   }
-  facts.push(...normalizedDirectFacts);
+  for (const directFact of normalizedDirectFacts) facts.push(directFact);
   return { facts, diagnostics, omittedDiagnostics };
 }

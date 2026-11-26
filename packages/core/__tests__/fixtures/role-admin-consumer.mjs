@@ -33,4 +33,6 @@ assert.equal(evaluate({
   scope: { organization: "north" },
   snapshot: { facts, knownActions: ["records.edit"] },
 }).code, "no-applicable-grant");
+// Avoid engine argument-count limits when a host supplies a large complete snapshot.
+assert.equal(expandRoles([], [], Array.from({ length: 150_000 }, () => ({ permission: "records.edit", effect: "deny" }))).facts.length, 150_000);
 console.log("Generic role administration adapter mapping passed");

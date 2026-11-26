@@ -1,0 +1,4 @@
+$ bun run --filter='@mizan/*' typecheck
+@mizan/core typecheck: Exited with code 0
+@mizan/memory typecheck: Exited with code 0
+@mizan/interactive-decision-demo typecheck: Exited with code 0
