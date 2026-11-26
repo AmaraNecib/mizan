@@ -6,9 +6,21 @@ import { expandRoles } from "@mizan/core/normalization";
 const facts = expandRoles(
   [{ name: "records-editor", permissions: [{ permission: "records.edit", effect: "grant" }] }],
   [{ roleName: "records-editor", scope: { organization: "north" }, expiresAt: 500 }],
-  [{ permission: "records.edit", effect: "deny", scope: { organization: "north" }, startsAt: 200, expiresAt: 500 }],
+  [{ permission: "records.edit", effect: "deny", scope: { organization: "north" }, startsAt: 200, expiresAt: 300 }],
 ).facts;
 
+assert.equal(evaluate({
+  action: "records.edit",
+  at: 199,
+  scope: { organization: "north" },
+  snapshot: { facts, knownActions: ["records.edit"] },
+}).outcome, "allow");
+assert.equal(evaluate({
+  action: "records.edit",
+  at: 300,
+  scope: { organization: "north" },
+  snapshot: { facts, knownActions: ["records.edit"] },
+}).outcome, "allow");
 assert.equal(evaluate({
   action: "records.edit",
   at: 250,

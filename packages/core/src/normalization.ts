@@ -56,7 +56,7 @@ function record(value: unknown, name: string): Record<string, unknown> {
 
 function checkedRecord(value: unknown, keys: Set<string>, name: string): Record<string, unknown> {
   const copy = record(value, name);
-  for (const key of Reflect.ownKeys(value as object)) {
+  for (const key of Reflect.ownKeys(copy)) {
     if (typeof key !== "string" || !keys.has(key)) return invalid(`${name} contains an unsupported field`);
   }
   return copy;
@@ -64,14 +64,14 @@ function checkedRecord(value: unknown, keys: Set<string>, name: string): Record<
 
 function array(value: unknown, name: string): unknown[] {
   if (!Array.isArray(value)) return invalid(`${name} must be an array`);
+  const length = Object.getOwnPropertyDescriptor(value, "length")?.value as unknown;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) return invalid(`${name} must have a valid length`);
   for (const key of Reflect.ownKeys(value)) {
     if (key === "length") continue;
-    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/u.test(key)) return invalid(`${name} must be a dense array without extra properties`);
+    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/u.test(key) || Number(key) >= length) return invalid(`${name} must be a dense array without extra properties`);
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor === undefined || !("value" in descriptor)) return invalid(`${name} must contain data properties, not accessors`);
   }
-  const length = value.length;
-  if (!Number.isSafeInteger(length) || length < 0) return invalid(`${name} must have a valid length`);
   const result: unknown[] = [];
   for (let i = 0; i < length; i += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
