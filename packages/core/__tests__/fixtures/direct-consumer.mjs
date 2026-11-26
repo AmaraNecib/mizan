@@ -18,4 +18,14 @@ assert.equal(evaluate({
   snapshot: { knownActions: [], facts: [{ permission: "*", effect: "grant" }] },
 }).code, "unknown-action");
 assert.throws(() => evaluate({ action: "employees:read", at: Number.NaN, snapshot: { facts: [], knownActions: [] } }), AuthorizationFault);
+assert.deepEqual(evaluate({
+  action: "reports.export",
+  at: 10,
+  policy: {
+    riskLevels: ["low", "critical"],
+    risk: { "reports.*": "critical" },
+    byRisk: { critical: { unknownPermissions: "allow-if-wildcard-granted" } },
+  },
+  snapshot: { knownActions: [], facts: [{ permission: "reports.*", effect: "grant" }] },
+}), { outcome: "allow", code: "granted", recognition: "wildcard-exception" });
 console.log("Built ESM core consumer passed");

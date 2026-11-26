@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc && node __tests__/fixtures/direct-consumer.mjs",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
