@@ -355,6 +355,18 @@ export function createAuthorizer<
   if (Object.keys(actions).length === 0 && Object.keys(routes).length === 0) fault("Authorizer requires at least one action or route");
   const clock = root.clock ?? Date.now;
   if (typeof clock !== "function") fault("Authorizer clock must be a function");
+  let lastClockSample: number | undefined;
+  const sampleClock = (): number => {
+    const sample: unknown = clock();
+    if (typeof sample !== "number" || !Number.isSafeInteger(sample)) {
+      fault("Authorizer clock must return safe integer epoch milliseconds");
+    }
+    if (lastClockSample !== undefined && sample < lastClockSample) {
+      fault("Authorizer clock moved backwards");
+    }
+    lastClockSample = sample;
+    return sample;
+  };
 
   const validateDefinition = (key: string, value: unknown, isRoute: boolean): ActionConfig<Context, Levels[number]> => {
     if (isRoute ? !isRoutePattern(key) : !isConcreteAction(key)) fault("Action or route key is malformed");
@@ -429,8 +441,7 @@ export function createAuthorizer<
           .sort((left, right) => routeSpecificity(right) - routeSpecificity(left))[0];
         const definition = exact ?? (selectedRoute === undefined ? undefined : checkedRoutes.get(selectedRoute));
         if (!definition) return { outcome: "deny", code: "unrouted-action" } as Decision;
-        const now = clock();
-        if (!Number.isSafeInteger(now)) fault("Authorizer clock must return safe integer epoch milliseconds");
+        const now = sampleClock();
         const query: SourceQuery<Context> = {
           ...base,
           action,
@@ -452,9 +463,7 @@ export function createAuthorizer<
         if (result.status === "unavailable") return { outcome: "indeterminate", code: "evidence-unavailable" };
         if (result.status === "unacceptable") return { outcome: "indeterminate", code: result.code };
         const receipt = result.selected[0]!;
-        const at = clock();
-        if (!Number.isSafeInteger(at)) fault("Authorizer clock must return safe integer epoch milliseconds");
-        if (at < now) fault("Authorizer clock moved backwards during evaluation");
+        const at = sampleClock();
         const snapshot = copySnapshot(receipt.evidence.snapshot, exact ? [action] : []);
         const decision = evaluate({
           action,

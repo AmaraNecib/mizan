@@ -45,4 +45,6 @@ A complete empty snapshot is a valid answer and evaluates to deny when no grant 
 
 Exact action keys are inferred from `actions`. Use `decideDynamic({ action })` for runtime-defined keys, with runtime recognition supplied by the source. Namespace routes (`"files.*"`) and a global route (`"*"`) can select a source for runtime keys. A route does not define every matching action.
 
+The authorizer samples its injected clock at construction-scoped instance state: each instance compares every valid sample with its own previous sample, in sample order across all calls and handles. Equal samples are valid. Invalid or decreasing samples throw `AuthorizationFault` and do not replace the last valid sample. Separate authorizer instances remain independent, even when they use the same clock function. Async completion order does not change the order in which samples are checked. The clock tracks validity and monotonicity only; it does not cache evidence.
+
 Issue 60 implements only one source. Fallback, multiple required contributors, guards, resource conditions, and their workflows are not supported; unknown configuration fields are rejected.

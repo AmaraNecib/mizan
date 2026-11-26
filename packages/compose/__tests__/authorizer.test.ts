@@ -209,6 +209,148 @@ describe("@mizan/compose one-source authorizer", () => {
     expect(calls).toBe(1);
   });
 
+  it("rejects a clock sample lower than the previous sample from this authorizer", async () => {
+    const samples = [1_000, 1_001, 1_000, 1_001];
+    const authorizer = createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: {
+        "files.read": { source: accept({
+          contribution: "permissions", recognitionDomains: ["catalog"],
+          resolve: async (query) => complete(query.action),
+        }, requirements), recognitionRequirements: ["catalog"] },
+      },
+      clock: () => samples.shift()!,
+    });
+    const handle = authorizer.forContext({});
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+  });
+
+  it("accepts equal clock samples and keeps clock state per authorizer", async () => {
+    const samples = [2_000, 2_000, 1_000, 1_001];
+    const sharedClock = () => samples.shift()!;
+    const makeWithClock = (clock: () => number) => createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: {
+        "files.read": { source: accept({
+          contribution: "permissions", recognitionDomains: ["catalog"],
+          resolve: async (query) => complete(query.action),
+        }, requirements), recognitionRequirements: ["catalog"] },
+      },
+      clock,
+    });
+    const first = makeWithClock(sharedClock).forContext({});
+    await expect(first.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    const second = makeWithClock(sharedClock).forContext({});
+    await expect(second.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+  });
+
+  it("keeps the high-water mark after invalid and decreasing clock samples", async () => {
+    const samples: unknown[] = [1_000, 1_001, Number.NaN, 1_001, 1_002, 1_001, 1_002, 1_002, 1_003];
+    const authorizer = createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: {
+        "files.read": { source: accept({
+          contribution: "permissions", recognitionDomains: ["catalog"],
+          resolve: async (query) => complete(query.action),
+        }, requirements), recognitionRequirements: ["catalog"] },
+      },
+      clock: () => samples.shift() as number,
+    });
+    const handle = authorizer.forContext({});
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+  });
+
+  it("checks clock samples in invocation order rather than async completion order", async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    let resolvers = 0;
+    const authorizer = createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: {
+        "files.read": { source: accept({
+          contribution: "permissions", recognitionDomains: ["catalog"],
+          resolve: async (query) => {
+            resolvers += 1;
+            await new Promise<void>((resolve) => {
+              if (resolvers === 1) releaseFirst = resolve;
+              else releaseSecond = resolve;
+            });
+            return complete(query.action);
+          },
+        }, requirements), recognitionRequirements: ["catalog"] },
+      },
+      clock: (() => {
+        const samples = [1_000, 1_001, 1_003, 1_002];
+        return () => samples.shift()!;
+      })(),
+    });
+    const handle = authorizer.forContext({});
+    const first = handle.decide("files.read");
+    const second = handle.decide("files.read");
+    await Promise.resolve();
+    releaseSecond();
+    await expect(second).resolves.toMatchObject({ outcome: "allow" });
+    releaseFirst();
+    await expect(first).rejects.toBeInstanceOf(AuthorizationFault);
+  });
+
+  it("returns cancelled when acquisition is aborted while pending", async () => {
+    let release!: (value: SourceOutcome) => void;
+    const authorizer = makeAuthorizer((query) => new Promise<SourceOutcome>((resolve) => {
+      release = (value) => resolve(value);
+      void query;
+    }));
+    const controller = new AbortController();
+    const pending = authorizer.forContext({ userId: "user-1", tenantId: "tenant-a" }, { signal: controller.signal })
+      .decide("files.read");
+    await Promise.resolve();
+    controller.abort();
+    release(complete("files.read"));
+    await expect(pending).resolves.toEqual({ outcome: "indeterminate", code: "cancelled" });
+  });
+
+  it("preserves the original source rejection through decide and can", async () => {
+    const failure = new Error("source failure");
+    const authorizer = makeAuthorizer(async () => { throw failure; });
+    const handle = authorizer.forContext({ userId: "user-1", tenantId: "tenant-a" });
+    await expect(handle.decide("files.read")).rejects.toBe(failure);
+    await expect(handle.can("files.read")).rejects.toBe(failure);
+  });
+
+  it("treats complete-empty evidence as a decision, not missing evidence", async () => {
+    const authorizer = makeAuthorizer(async (query) => ({
+      ...complete(query.action),
+      snapshot: { knownActions: [query.action], facts: [] },
+    }));
+    await expect(authorizer.forContext({ userId: "user-1", tenantId: "tenant-a" }).decide("files.read"))
+      .resolves.toEqual({ outcome: "deny", code: "no-applicable-grant" });
+  });
+
+  it("rejects malformed dynamic actions and missing recognition-domain setup", async () => {
+    const authorizer = makeAuthorizer(async (query) => complete(query.action));
+    const handle = authorizer.forContext({ userId: "user-1", tenantId: "tenant-a" });
+    expect(() => handle.decideDynamic({ action: "bad action" })).toThrow(AuthorizationFault);
+
+    const source: Source<object> = {
+      contribution: "permissions", recognitionDomains: ["catalog"],
+      resolve: async (query) => complete(query.action),
+    };
+    expect(() => createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: { "files.read": { source: accept(source, requirements), recognitionRequirements: ["missing"] } },
+    })).toThrow(AuthorizationFault);
+  });
+
   it("checks evidence age at decision time and recognizes runtime definitions independently of grants", async () => {
     let now = 1_000;
     const authorizer = createAuthorizer({
