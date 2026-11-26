@@ -1,0 +1,3 @@
+$ bun run --filter='@mizan/*' lint
+@mizan/core lint: Exited with code 0
+@mizan/memory lint: Exited with code 0

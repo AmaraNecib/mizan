@@ -1,0 +1,14 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+(pass) expandRoles > intersects role permission and assignment scope and validity [2.07ms]
+(pass) expandRoles > preserves intersected restrictions on denials and omits empty intersections [1.14ms]
+(pass) expandRoles > appends validated direct facts without mutating caller input [0.17ms]
+(pass) expandRoles > validates unused roles, duplicate definitions, and missing assignment references [0.35ms]
+(pass) expandRoles > rejects malformed objects and arrays instead of invoking caller behavior [0.91ms]
+(pass) expandRoles > bounds diagnostics when many role facts are omitted [1.12ms]
+
+ 6 pass
+ 0 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [23.00ms]

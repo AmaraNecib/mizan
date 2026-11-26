@@ -1,6 +1,7 @@
 // Run after building core: node packages/core/__tests__/fixtures/direct-consumer.mjs
 import assert from "node:assert/strict";
 import { evaluate, isAllowed, toPublic, AuthorizationFault } from "@mizan/core";
+import { expandRoles } from "@mizan/core/normalization";
 
 const decision = evaluate({
   action: "employees:read",
@@ -28,4 +29,11 @@ assert.deepEqual(evaluate({
   },
   snapshot: { knownActions: [], facts: [{ permission: "reports.*", effect: "grant" }] },
 }), { outcome: "allow", code: "granted", recognition: "wildcard-exception" });
+const normalized = expandRoles(
+  [{ name: "records-editor", permissions: [{ permission: "records.edit", effect: "grant" }] }],
+  [{ roleName: "records-editor", expiresAt: 100 }],
+  [{ permission: "records.edit", effect: "deny", startsAt: 50, expiresAt: 100 }],
+);
+assert.equal(evaluate({ action: "records.edit", at: 60, snapshot: { knownActions: ["records.edit"], facts: normalized.facts } }).code, "explicit-deny");
+assert.equal(evaluate({ action: "records.edit", at: 100, snapshot: { knownActions: ["records.edit"], facts: normalized.facts } }).code, "no-applicable-grant");
 console.log("Built ESM core consumer passed");

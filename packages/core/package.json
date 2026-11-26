@@ -10,6 +10,12 @@
       "bun": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./normalization": {
+      "types": "./src/normalization.ts",
+      "bun": "./src/normalization.ts",
+      "import": "./dist/normalization.js",
+      "default": "./dist/normalization.js"
     }
   },
   "main": "./dist/index.js",
@@ -20,7 +26,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && node __tests__/fixtures/direct-consumer.mjs",
+    "build": "tsc && node __tests__/fixtures/direct-consumer.mjs && node __tests__/fixtures/role-admin-consumer.mjs",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "lint": "tsc --noEmit"

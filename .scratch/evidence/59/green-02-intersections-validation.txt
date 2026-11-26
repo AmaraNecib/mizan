@@ -1,0 +1,33 @@
+bun test v1.4.4 (38afee6c8)
+
+packages\core\__tests__\normalization.test.ts:
+(pass) expandRoles > intersects role permission and assignment scope and validity [1.41ms]
+28 |     expect(result.facts).toEqual([{ permission: "records.read", effect: "deny", scope: { region: "east" }, startsAt: 10, expiresAt: 30 }]);
+29 |     expect(result.diagnostics).toEqual([
+30 |       { code: "scope-conflict", roleName: "auditor", permission: "records.delete" },
+31 |       { code: "empty-validity", roleName: "auditor", permission: "records.write" },
+32 |     ]);
+33 |     expect(evaluate({ action: "records.read", at: 15, snapshot: { facts: result.facts, knownActions: ["records.read"] } })).toEqual({ outcome: "deny", code: "explicit-deny" });
+                                                                                                                                 ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "code": "explicit-deny",
++   "code": "no-applicable-grant",
+    "outcome": "deny",
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (D:\worktrees\mizan\t3-b8d90cb9-1dfb5d5c4c41c495\packages\core\__tests__\normalization.test.ts:33:125)
+(fail) expandRoles > preserves intersected restrictions on denials and omits empty intersections [1.22ms]
+(pass) expandRoles > appends validated direct facts without mutating caller input [0.16ms]
+(pass) expandRoles > validates unused roles, duplicate definitions, and missing assignment references [0.26ms]
+(pass) expandRoles > rejects malformed objects and arrays instead of invoking caller behavior [0.77ms]
+(pass) expandRoles > bounds diagnostics when many role facts are omitted [1.03ms]
+
+ 5 pass
+ 1 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [18.00ms]
