@@ -160,6 +160,16 @@ describe("@mizan/core direct evaluator", () => {
     } as never)).toThrow(core.AuthorizationFault);
   });
 
+  it.each(["GMT", "GMT0", "Etc/GMT", "Etc/GMT0", "Greenwich", "Etc/Greenwich", "gmt0", "etc/gmt+2", "eTc/GmT-2"])(
+    "rejects the fixed-offset timezone identifier %s even on an irrelevant denial", (timezone) => {
+      expect(() => core.evaluate({ action: "unknown.action", at: 0, snapshot: { knownActions: [], facts: [{ permission: "other.read", effect: "deny", schedules: [{ timezone, weeks: [] }] }] } })).toThrow(core.AuthorizationFault);
+    },
+  );
+
+  it.each(["UTC", "Etc/UTC"])("retains the supported UTC timezone name %s", (timezone) => {
+    expect(core.evaluate({ action: "files.read", at: 0, snapshot: { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone, weeks: [{ day: "thursday", times: [{ start: "00:00", end: "01:00" }] }] }] }] } }).outcome).toBe("allow");
+  });
+
   it("preserves the gallery UTC weekday boundaries at millisecond precision", () => {
     const fact: core.EffectiveFact = { permission: "cars.delete", effect: "grant", schedules: [{ timezone: "UTC",
       weeks: (["monday", "tuesday", "wednesday", "thursday", "friday"] as const).map((day) => ({

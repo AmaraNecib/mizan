@@ -81,7 +81,7 @@ export function normalizeSchedules(value: unknown, fail: Fail): readonly Normali
   return array(value, fail, "Fact schedules").map((entry) => {
     const schedule = record(entry, fail, "Activity schedule");
     keys(schedule, ["timezone", "weeks", "dates"], fail, "Activity schedule");
-    if (typeof schedule.timezone !== "string" || schedule.timezone.length === 0 || /^(?:[+-]\d{2}(?::?\d{2})?|GMT[+-]|Etc\/GMT[+-])/u.test(schedule.timezone)) fail("Schedule timezone must be an IANA named zone");
+    if (typeof schedule.timezone !== "string" || schedule.timezone.length === 0 || /^(?:[+-]\d|(?:Etc\/)?(?:GMT|Greenwich))/iu.test(schedule.timezone)) fail("Schedule timezone must be an IANA named zone");
     try { new Intl.DateTimeFormat("en-US", { timeZone: schedule.timezone, calendar: "gregory", numberingSystem: "latn", hourCycle: "h23" }); }
     catch { fail("Schedule timezone is not supported by this runtime"); }
     if (schedule.weeks === undefined && schedule.dates === undefined) fail("Activity schedule requires weeks or dates");

@@ -105,6 +105,13 @@ describe("expandRoles", () => {
     )).toThrow(AuthorizationFault);
   });
 
+  test.each(["Etc/GMT", "GMT0", "etc/gmt+2"])("rejects fixed-offset alias %s on every normalization input", (timezone) => {
+    const schedules = [{ timezone, weeks: [] }];
+    expect(() => expandRoles([{ name: "unused", permissions: [{ permission: "files.read", effect: "deny", schedules }] }], [])).toThrow(AuthorizationFault);
+    expect(() => expandRoles([{ name: "empty", permissions: [] }], [{ roleName: "empty", schedules }])).toThrow(AuthorizationFault);
+    expect(() => expandRoles([], [], [{ permission: "files.read", effect: "deny", schedules }])).toThrow(AuthorizationFault);
+  });
+
   test("appends validated direct facts without mutating caller input", () => {
     const directFacts = [{ permission: "files.read", effect: "deny" as const, scope: { org: "north" } }];
     const before = structuredClone(directFacts);
