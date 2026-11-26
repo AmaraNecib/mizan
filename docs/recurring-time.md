@@ -39,4 +39,4 @@ Schedule inactivity grants nothing. It adds no new public decision code. An acti
 
 The preserved gallery's UTC weekday business hours map to one schedule entry. Disabling that restriction omits the entry. Its controls and implementation are unchanged by #63; #64 owns migration. The old evaluator and its historical result codes are not changed by this contract.
 
-Role normalization must preserve every independent assignment and permission schedule, not union them as alternatives or discard them. #59's normalization helper is not changed by the standalone recurring evaluator work. Schedule-aware normalization integration follows #59 and requires its own runtime and type proof before claiming that end-to-end path.
+`expandRoles` validates and copies schedules on role permissions, assignments, and direct facts. It appends assignment and permission schedules as separate entries, so the evaluator requires both restrictions to match. A malformed schedule raises `AuthorizationFault` even on an unused role, an empty assignment, or a fact later omitted for a scope conflict or empty absolute interval. The singular `schedule` field remains unsupported.

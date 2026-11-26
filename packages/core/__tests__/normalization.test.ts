@@ -33,6 +33,61 @@ describe("expandRoles", () => {
     expect(evaluate({ action: "records.read", at: 15, scope: { region: "east" }, snapshot: { facts: result.facts, knownActions: ["records.read"] } })).toEqual({ outcome: "deny", code: "explicit-deny" });
   });
 
+  test("keeps assignment and permission schedules conjunctive with scope and half-open validity", () => {
+    const startsAt = Date.parse("2024-06-17T14:00:00Z");
+    const expiresAt = startsAt + 60_000;
+    const { facts } = expandRoles(
+      [{ name: "editor", permissions: [{ permission: "files.edit", effect: "grant", schedules: [{ timezone: "America/New_York", weeks: [{ day: "monday", times: [{ start: "10:00", end: "11:00" }] }] }] }] }],
+      [{ roleName: "editor", scope: { org: "north" }, startsAt, expiresAt, schedules: [{ timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }] }] }],
+    );
+
+    expect(facts[0]).toEqual({
+      permission: "files.edit", effect: "grant", scope: { org: "north" }, startsAt, expiresAt,
+      schedules: [
+        { timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }], dates: [] },
+        { timezone: "America/New_York", weeks: [{ day: "monday", times: [{ start: "10:00", end: "11:00" }] }], dates: [] },
+      ],
+    });
+    const snapshot = { facts, knownActions: ["files.edit"] };
+    const decide = (at: number, org = "north") => evaluate({ action: "files.edit", at, scope: { org }, snapshot });
+    expect(decide(startsAt).outcome).toBe("allow");
+    expect(decide(startsAt - 1).code).toBe("no-applicable-grant");
+    expect(decide(expiresAt).code).toBe("no-applicable-grant");
+    expect(decide(startsAt, "south").code).toBe("no-applicable-grant");
+    expect(decide(Date.parse("2024-06-17T15:00:00Z")).code).toBe("no-applicable-grant");
+  });
+
+  test("retains recurring restrictions on role denials and direct facts", () => {
+    const day = { timezone: "UTC", dates: [{ date: "2024-06-17", times: [{ start: "14:00", end: "15:00" }] }] };
+    const { facts } = expandRoles(
+      [{ name: "reviewer", permissions: [{ permission: "reports.read", effect: "grant" }, { permission: "reports.read", effect: "deny", schedules: [day] }] }],
+      [{ roleName: "reviewer" }],
+      [{ permission: "reports.export", effect: "grant", schedules: [day] }],
+    );
+    const snapshot = { facts, knownActions: ["reports.read", "reports.export"] };
+    const decide = (action: string, at: string) => evaluate({ action, at: Date.parse(at), snapshot });
+    expect(decide("reports.read", "2024-06-17T14:30:00Z").code).toBe("explicit-deny");
+    expect(decide("reports.read", "2024-06-17T15:00:00Z").outcome).toBe("allow");
+    expect(decide("reports.export", "2024-06-17T14:30:00Z").outcome).toBe("allow");
+    expect(decide("reports.export", "2024-06-17T15:00:00Z").code).toBe("no-applicable-grant");
+  });
+
+  test("validates schedules before suppressing conflicting or empty role facts", () => {
+    const malformedSchedules = [{ timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "25:00", end: "26:00" }] }] }];
+    expect(() => expandRoles(
+      [{ name: "unused", permissions: [{ permission: "files.read", effect: "grant", schedules: malformedSchedules }] }],
+      [],
+    )).toThrow(AuthorizationFault);
+    expect(() => expandRoles(
+      [{ name: "role", permissions: [{ permission: "files.read", effect: "grant", scope: { org: "north" }, schedules: malformedSchedules }] }],
+      [{ roleName: "role", scope: { org: "south" } }],
+    )).toThrow(AuthorizationFault);
+    expect(() => expandRoles(
+      [{ name: "role", permissions: [{ permission: "files.read", effect: "deny", expiresAt: 10, schedules: malformedSchedules }] }],
+      [{ roleName: "role", startsAt: 10 }],
+    )).toThrow(AuthorizationFault);
+  });
+
   test("appends validated direct facts without mutating caller input", () => {
     const directFacts = [{ permission: "files.read", effect: "deny" as const, scope: { org: "north" } }];
     const before = structuredClone(directFacts);
@@ -107,26 +162,37 @@ describe("expandRoles", () => {
     expect(decide(250, "records.edit", "south").outcome).toBe("allow");
   });
 
-  test("copies scopes before callers mutate input and preserves direct empty windows", () => {
+  test("copies scopes and schedules before callers mutate input", () => {
     const permissionScope = { project: "one" };
     const assignmentScope = { org: "north" };
     const directScope = { org: "south" };
+    const assignmentSchedules = [{ timezone: "UTC", weeks: [{ day: "monday" as const, times: [{ start: "09:00", end: "17:00" }] }] }];
+    const permissionSchedules = [{ timezone: "America/New_York", dates: [{ date: "2024-06-17", times: [{ start: "10:00", end: "11:00" }] }] }];
+    const directSchedules = [{ timezone: "UTC", dates: [{ date: "2024-06-17", times: [{ start: "14:00", end: "15:00" }] }] }];
     const { facts } = expandRoles(
-      [{ name: "role", permissions: [{ permission: "records.read", effect: "grant", scope: permissionScope }] }],
-      [{ roleName: "role", scope: assignmentScope, provenanceId: "assignment" }],
-      [{ permission: "records.read", effect: "deny", scope: directScope, startsAt: 0, expiresAt: 0, provenanceId: "revoke" }],
+      [{ name: "role", permissions: [{ permission: "records.read", effect: "grant", scope: permissionScope, schedules: permissionSchedules }] }],
+      [{ roleName: "role", scope: assignmentScope, schedules: assignmentSchedules, provenanceId: "assignment" }],
+      [{ permission: "records.read", effect: "deny", scope: directScope, startsAt: 0, expiresAt: 0, schedules: directSchedules, provenanceId: "revoke" }],
     );
     permissionScope.project = "other";
     assignmentScope.org = "changed";
     directScope.org = "changed";
+    assignmentSchedules[0]!.weeks![0]!.times[0]!.start = "00:00";
+    permissionSchedules[0]!.timezone = "UTC";
+    directSchedules[0]!.dates[0]!.date = "2024-06-18";
     expect(facts).toEqual([
-      { permission: "records.read", effect: "grant", scope: { org: "north", project: "one" }, provenanceId: "assignment" },
-      { permission: "records.read", effect: "deny", scope: { org: "south" }, startsAt: 0, expiresAt: 0, provenanceId: "revoke" },
+      { permission: "records.read", effect: "grant", scope: { org: "north", project: "one" }, provenanceId: "assignment", schedules: [
+        { timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }], dates: [] },
+        { timezone: "America/New_York", weeks: [], dates: [{ date: "2024-06-17", times: [{ start: "10:00", end: "11:00" }] }] },
+      ] },
+      { permission: "records.read", effect: "deny", scope: { org: "south" }, startsAt: 0, expiresAt: 0, provenanceId: "revoke", schedules: [
+        { timezone: "UTC", weeks: [], dates: [{ date: "2024-06-17", times: [{ start: "14:00", end: "15:00" }] }] },
+      ] },
     ]);
   });
 
   test.each([
-    { schedule: {} }, { schedule: undefined }, { kind: "role" }, { effect: "allow" },
+    { schedule: {} }, { schedule: undefined }, { schedules: [{ timezone: "No/Such_Zone", weeks: [] }] }, { kind: "role" }, { effect: "allow" },
     { permission: "records.**" }, { permission: "records..read" }, { permission: "records read" },
     { scope: null }, { scope: { org: "" } }, { scope: { "": "north" } },
     { startsAt: NaN }, { startsAt: 0.5 }, { expiresAt: Infinity }, { expiresAt: Number.MAX_SAFE_INTEGER + 1 },
@@ -138,7 +204,7 @@ describe("expandRoles", () => {
   });
 
   test.each([
-    { schedule: {} }, { schedule: undefined }, { effect: "grant" }, { scope: null },
+    { schedule: {} }, { schedule: undefined }, { schedules: [{ timezone: "UTC" }] }, { effect: "grant" }, { scope: null },
     { scope: { org: 42 } }, { startsAt: NaN }, { expiresAt: 1.5 },
     { startsAt: 20, expiresAt: 10 }, { provenanceId: false },
   ])("rejects malformed assignments %j even when role permissions are empty", (fields) => {
