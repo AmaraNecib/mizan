@@ -15,17 +15,20 @@ export type AuthorizationSnapshot = {
   readonly knownActions: readonly string[];
 };
 
+export type DefaultRisk = "low" | "high";
 export type UnknownPermissionBehavior = "deny" | "allow-if-wildcard-granted";
 export type RecognitionSettings = { readonly unknownPermissions?: UnknownPermissionBehavior };
-export type ActionPolicy<Risk extends string = "low" | "high"> = RecognitionSettings & { readonly risk?: Risk };
-export type AuthorizationPolicy<Risk extends string = "low" | "high"> = {
+export type ActionPolicy<Risk extends string = DefaultRisk> = RecognitionSettings & {
+  readonly risk?: Risk;
+};
+export type AuthorizationPolicy<Risk extends string = DefaultRisk> = {
   readonly riskLevels: readonly Risk[];
   readonly defaults?: RecognitionSettings;
   readonly risk?: Readonly<Record<string, Risk>>;
   readonly byRisk?: Readonly<Partial<Record<Risk, RecognitionSettings>>>;
 };
 
-export type EvaluationInput<Risk extends string = "low" | "high"> = {
+export type EvaluationInput<Risk extends string = DefaultRisk> = {
   readonly action: string;
   readonly snapshot: AuthorizationSnapshot;
   readonly at: number;
@@ -150,22 +153,34 @@ function normalizeScope(value: unknown, name: string): Scope | undefined {
   return copy as Scope;
 }
 
-type NormalizedPolicy = { readonly riskLevels: readonly string[]; readonly defaults: RecognitionSettings; readonly risk: Readonly<Record<string, string>>; readonly byRisk: Readonly<Record<string, RecognitionSettings>>; readonly inline?: ActionPolicy<string> };
+type NormalizedPolicy = {
+  readonly defaults: RecognitionSettings;
+  readonly risk: Readonly<Record<string, string>>;
+  readonly byRisk: Readonly<Record<string, RecognitionSettings>>;
+  readonly inline?: ActionPolicy<string>;
+};
+
+const BEHAVIOR_KEYS = new Set(["unknownPermissions"]);
+const POLICY_KEYS = new Set(["riskLevels", "defaults", "risk", "byRisk"]);
+const ACTION_POLICY_KEYS = new Set(["risk", "unknownPermissions"]);
 
 function normalizeBehavior(value: unknown, name: string): RecognitionSettings {
   const settings = copyRecord(value, name);
-  assertKeys(settings, new Set(["unknownPermissions"]), name);
-  if (settings.unknownPermissions !== undefined && settings.unknownPermissions !== "deny" && settings.unknownPermissions !== "allow-if-wildcard-granted") invalid(`${name} has an unsupported unknownPermissions behavior`);
-  return { ...(settings.unknownPermissions === undefined ? {} : { unknownPermissions: settings.unknownPermissions as UnknownPermissionBehavior }) };
+  assertKeys(settings, BEHAVIOR_KEYS, name);
+  const behavior = settings.unknownPermissions;
+  if (behavior === undefined) return {};
+  if (behavior !== "deny" && behavior !== "allow-if-wildcard-granted") {
+    invalid(`${name} has an unsupported unknownPermissions behavior`);
+  }
+  return { unknownPermissions: behavior };
 }
 
 function normalizePolicy(policyValue: unknown, actionPolicyValue: unknown): NormalizedPolicy | undefined {
-  if (policyValue === undefined) {
-    if (actionPolicyValue !== undefined) invalid("actionPolicy requires policy riskLevels");
-    return undefined;
-  }
-  const policy = copyRecord(policyValue, "Authorization policy");
-  assertKeys(policy, new Set(["riskLevels", "defaults", "risk", "byRisk"]), "Authorization policy");
+  if (policyValue === undefined && actionPolicyValue === undefined) return undefined;
+  const policy = policyValue === undefined
+    ? { riskLevels: ["low", "high"] }
+    : copyRecord(policyValue, "Authorization policy");
+  assertKeys(policy, POLICY_KEYS, "Authorization policy");
   const levels = copyArray(policy.riskLevels, "Policy riskLevels");
   const accepted = new Set<string>();
   for (const level of levels) {
@@ -191,11 +206,21 @@ function normalizePolicy(policyValue: unknown, actionPolicyValue: unknown): Norm
   }
   const inline = actionPolicyValue === undefined ? undefined : (() => {
     const action = copyRecord(actionPolicyValue, "Action policy");
-    assertKeys(action, new Set(["risk", "unknownPermissions"]), "Action policy");
-    if (action.risk !== undefined && (typeof action.risk !== "string" || !accepted.has(action.risk))) invalid("Action policy uses an unregistered risk label");
-    return { ...normalizeBehavior(Object.fromEntries(Object.entries(action).filter(([key]) => key !== "risk")), "Action policy"), ...(action.risk === undefined ? {} : { risk: action.risk as string }) };
+    assertKeys(action, ACTION_POLICY_KEYS, "Action policy");
+    if (action.risk !== undefined && (typeof action.risk !== "string" || !accepted.has(action.risk))) {
+      invalid("Action policy uses an unregistered risk label");
+    }
+    return {
+      ...normalizeBehavior({ unknownPermissions: action.unknownPermissions }, "Action policy"),
+      ...(action.risk === undefined ? {} : { risk: action.risk as string }),
+    };
   })();
-  return { riskLevels: levels as string[], defaults: policy.defaults === undefined ? {} : normalizeBehavior(policy.defaults, "Policy defaults"), risk, byRisk, ...(inline === undefined ? {} : { inline }) };
+  return {
+    defaults: policy.defaults === undefined ? {} : normalizeBehavior(policy.defaults, "Policy defaults"),
+    risk,
+    byRisk,
+    ...(inline === undefined ? {} : { inline }),
+  };
 }
 
 type NormalizedInput = Omit<EvaluationInput<string>, "policy" | "actionPolicy"> & { readonly policy?: NormalizedPolicy };
@@ -249,7 +274,7 @@ function normalizeInput(input: unknown): NormalizedInput {
     ...(scope === undefined ? {} : { scope }),
     snapshot: { knownActions: knownActions as string[], facts },
     ...(policy === undefined ? {} : { policy }),
-  } as NormalizedInput;
+  };
 }
 
 function specificity(pattern: string): number {
@@ -285,18 +310,27 @@ function isActive(fact: EffectiveFact, at: number): boolean {
 
 /**
  * Decide synchronously from a complete trusted snapshot at an explicit instant.
- * Unknown keys deny even under wildcards. Active denials win over grants.
+ * Unknown keys deny unless explicit policy permits an applicable wildcard grant.
+ * Active denials win over grants.
  * Records must be plain or null-prototype data objects; accessors are rejected.
  * Evaluate validated local copies, never caller array methods or repeated property reads.
  * Namespace patterns match descendants, unlike the legacy matchesPermission helper.
  */
-export function evaluate<const Levels extends readonly string[]>(input: Omit<EvaluationInput<Levels[number]>, "policy"> & { readonly policy?: { readonly riskLevels: Levels } & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels"> }): CoreDecision;
+export function evaluate(input: EvaluationInput & { readonly policy?: undefined }): CoreDecision;
+export function evaluate<const Levels extends readonly string[]>(
+  input: Omit<EvaluationInput<Levels[number]>, "policy"> & {
+    readonly policy: { readonly riskLevels: Levels }
+      & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels">;
+  },
+): CoreDecision;
 export function evaluate(input: EvaluationInput<string>): CoreDecision {
   const { action, snapshot, at, scope, policy } = normalizeInput(input);
   const riskMatches = policy === undefined ? [] : Object.entries(policy.risk).filter(([pattern]) => matches(action, pattern));
   riskMatches.sort(([a], [b]) => specificity(b) - specificity(a));
   const resolvedRisk = policy?.inline?.risk ?? riskMatches[0]?.[1];
-  const behavior = policy?.inline?.unknownPermissions ?? (resolvedRisk === undefined ? undefined : policy?.byRisk[resolvedRisk]?.unknownPermissions) ?? policy?.defaults.unknownPermissions ?? "deny";
+  const riskBehavior = resolvedRisk === undefined ? undefined : policy?.byRisk[resolvedRisk]?.unknownPermissions;
+  const behavior = policy?.inline?.unknownPermissions ?? riskBehavior
+    ?? policy?.defaults.unknownPermissions ?? "deny";
   const known = snapshot.knownActions.includes(action);
   const matching = snapshot.facts.filter((fact) =>
     matches(action, fact.permission) && isInScope(fact.scope, scope) && isActive(fact, at)
@@ -307,7 +341,9 @@ export function evaluate(input: EvaluationInput<string>): CoreDecision {
   }
   if (!known) {
     const wildcardGrant = matching.some((fact) => fact.effect === "grant" && fact.permission !== action);
-    if (behavior === "allow-if-wildcard-granted" && wildcardGrant) return { outcome: "allow", code: "granted", recognition: "wildcard-exception" };
+    if (behavior === "allow-if-wildcard-granted" && wildcardGrant) {
+      return { outcome: "allow", code: "granted", recognition: "wildcard-exception" };
+    }
     return { outcome: "deny", code: "unknown-action" };
   }
   if (matching.some((fact) => fact.effect === "grant")) {

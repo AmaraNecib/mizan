@@ -1,5 +1,5 @@
 import { evaluate } from "@mizan/core";
-import { importedPolicy } from "../../packages/core/src/policy-fixture.js";
+import { importedPolicy } from "./policy.js";
 
 const decision = evaluate({
   action: "reports.export",
@@ -11,4 +11,16 @@ const decision = evaluate({
   },
 });
 
-console.log(decision);
+console.log("Imported policy", decision);
+
+const inlineDecision = evaluate({
+  action: "reports.preview",
+  at: 0,
+  policy: { riskLevels: ["low", "critical"], defaults: { unknownPermissions: "deny" } },
+  actionPolicy: { risk: "low", unknownPermissions: "allow-if-wildcard-granted" },
+  snapshot: {
+    knownActions: [],
+    facts: [{ permission: "reports.*", effect: "grant" }],
+  },
+});
+console.log("Inline policy", inlineDecision);

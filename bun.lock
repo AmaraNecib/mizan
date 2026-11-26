@@ -1,11 +1,18 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "mizan",
       "devDependencies": {
         "husky": "^9.1.7",
         "typescript": "^5.7.3",
+      },
+    },
+    "examples/direct-evaluation": {
+      "name": "@mizan/example-direct-evaluation",
+      "dependencies": {
+        "@mizan/core": "workspace:*",
       },
     },
     "examples/interactive-decision-demo": {
@@ -54,6 +61,8 @@
   ],
   "packages": {
     "@mizan/core": ["@mizan/core@workspace:packages/core"],
+
+    "@mizan/example-direct-evaluation": ["@mizan/example-direct-evaluation@workspace:examples/direct-evaluation"],
 
     "@mizan/interactive-decision-demo": ["@mizan/interactive-decision-demo@workspace:examples/interactive-decision-demo"],
 

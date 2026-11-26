@@ -25,6 +25,7 @@ export type {
   EffectiveFact,
   EvaluationInput,
   AuthorizationPolicy,
+  DefaultRisk,
   ActionPolicy,
   RecognitionSettings,
   UnknownPermissionBehavior,
