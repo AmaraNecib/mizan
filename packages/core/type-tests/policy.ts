@@ -43,7 +43,7 @@ void invalidImported;
 const recurringFact = {
   permission: "reports.read",
   effect: "grant",
-  schedules: [{ timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }] }],
+  schedules: [{ timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }] } satisfies import("@mizan/core").ActivitySchedule],
 } as const satisfies import("@mizan/core").EffectiveFact;
 evaluate({ ...facts, snapshot: { knownActions: ["reports.read"], facts: [recurringFact] } });
 // @ts-expect-error independently restricted schedules are plural

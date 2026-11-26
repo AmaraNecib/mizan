@@ -19,6 +19,7 @@ export {
   isAllowed,
   toPublic,
 } from "./direct-evaluation.js";
+export type { ActivitySchedule } from "./recurring-time.js";
 export type {
   AuthorizationSnapshot,
   CoreDecision,
