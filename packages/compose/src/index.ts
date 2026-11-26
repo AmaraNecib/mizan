@@ -1,5 +1,6 @@
 import {
   evaluate,
+  AuthorizationFault,
   type ActionPolicy,
   type AuthorizationPolicy,
   type AuthorizationSnapshot,
@@ -7,13 +8,7 @@ import {
   type Scope,
 } from "@mizan/core";
 
-export class AuthorizationFault extends TypeError {
-  readonly code = "invalid-input" as const;
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthorizationFault";
-  }
-}
+export { AuthorizationFault };
 
 export type Awaitable<T> = T | PromiseLike<T>;
 export type Binding = {
@@ -327,7 +322,6 @@ export function accept<Context>(source: Source<Context>, requirements: Acceptanc
       if (outcome.status !== "complete") fault("Source returned an unknown outcome status");
       const evidence = validateCompleteOutcome(outcome, { contribution, recognitionDomains: domains });
       if (!sameBinding(query, evidence.binding)) fault("Source returned evidence for a different binding");
-      if (!accepted(evidence, acceptance, query.startedAt)) return { status: "unacceptable", code: "assurance-unmet" };
       return { status: "complete", selected: [{ evidence, requirements: acceptance }] };
     },
   };
@@ -447,7 +441,7 @@ export function createAuthorizer<
         if (signal?.aborted) return { outcome: "indeterminate", code: "cancelled" };
         let raw: unknown;
         try {
-          raw = await definition.source.resolve(query);
+          raw = await definition.source.resolve({ ...query, scope: Object.freeze({ ...query.scope }) });
         } catch (error) {
           if (signal?.aborted) return { outcome: "indeterminate", code: "cancelled" };
           throw error;
@@ -460,9 +454,9 @@ export function createAuthorizer<
         const receipt = result.selected[0]!;
         const at = clock();
         if (!Number.isSafeInteger(at)) fault("Authorizer clock must return safe integer epoch milliseconds");
-        if (!accepted(receipt.evidence, receipt.requirements, at)) return { outcome: "indeterminate", code: "assurance-unmet" };
+        if (at < now) fault("Authorizer clock moved backwards during evaluation");
         const snapshot = copySnapshot(receipt.evidence.snapshot, exact ? [action] : []);
-        return evaluate({
+        const decision = evaluate({
           action,
           snapshot,
           at,
@@ -470,6 +464,8 @@ export function createAuthorizer<
           policy: policyCopy as never,
           ...(definition.policy === undefined ? {} : { actionPolicy: definition.policy }),
         } as never);
+        if (!accepted(receipt.evidence, receipt.requirements, at)) return { outcome: "indeterminate", code: "assurance-unmet" };
+        return decision;
       };
       return {
         can: async (action: ActionCalls<Actions>) => (await run(action)).outcome === "allow",
