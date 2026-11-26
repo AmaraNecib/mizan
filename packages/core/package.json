@@ -20,7 +20,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node __tests__/fixtures/direct-consumer.mjs",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"

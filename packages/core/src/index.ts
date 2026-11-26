@@ -13,6 +13,20 @@
  *   application-defined policy plans.
  */
 
+export {
+  AuthorizationFault,
+  evaluate,
+  isAllowed,
+  toPublic,
+} from "./direct-evaluation.js";
+export type {
+  AuthorizationSnapshot,
+  CoreDecision,
+  EffectiveFact,
+  EvaluationInput,
+  Scope,
+} from "./direct-evaluation.js";
+
 // ─── Core types ────────────────────────────────────────────────────────────
 
 /**
