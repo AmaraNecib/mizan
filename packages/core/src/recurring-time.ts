@@ -103,10 +103,13 @@ export function normalizeSchedules(value: unknown, fail: Fail): readonly Normali
 function dateParts(timestamp: number, timezone: string, fail: Fail): { year: number; month: number; day: number; weekday: number; minute: number } {
   let parts: Intl.DateTimeFormatPart[];
   try {
-    parts = new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(timestamp));
+    parts = new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", { timeZone: timezone, era: "short", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(timestamp));
   } catch { return fail("Scheduled fact instant is outside the supported Date range"); }
   const get = (type: string) => parts.find((part) => part.type === type)?.value;
-  const year = Number(get("year")); const month = Number(get("month")); const day = Number(get("day"));
+  // Intl uses era-relative years; Date arithmetic uses astronomical year zero.
+  const eraYear = Number(get("year"));
+  const year = get("era") === "BC" ? 1 - eraYear : eraYear;
+  const month = Number(get("month")); const day = Number(get("day"));
   const hour = Number(get("hour")); const minute = Number(get("minute"));
   const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday") ?? "");
   if (![year, month, day, hour, minute].every(Number.isFinite) || weekday < 0) return fail("Runtime returned an invalid local date-time");

@@ -126,6 +126,42 @@ describe("@mizan/core direct evaluator", () => {
     } as never)).toThrow(core.AuthorizationFault);
   });
 
+  it("preserves the gallery UTC weekday boundaries at millisecond precision", () => {
+    const fact: core.EffectiveFact = { permission: "cars.delete", effect: "grant", schedules: [{ timezone: "UTC",
+      weeks: (["monday", "tuesday", "wednesday", "thursday", "friday"] as const).map((day) => ({
+        day, times: [{ start: "09:00", end: "17:00" }],
+      })),
+    }] };
+    for (const [instant, expected] of [
+      ["2024-01-01T08:59:59.999Z", "deny"], ["2024-01-01T09:00:00.000Z", "allow"],
+      ["2024-01-01T16:59:59.999Z", "allow"], ["2024-01-01T17:00:00.000Z", "deny"],
+      ["2024-01-06T12:00:00.000Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "cars.delete", at: Date.parse(instant),
+      snapshot: { knownActions: ["cars.delete"], facts: [fact] },
+    }).outcome).toBe(expected);
+  });
+
+  it("anchors overnight dates to adjacent local dates across short and long DST days", () => {
+    for (const [date, start, end, instant, expected] of [
+      ["2024-03-10", "22:00", "02:00", "2024-03-11T04:30:00Z", "allow"],
+      ["2024-03-09", "22:00", "02:00", "2024-03-11T04:30:00Z", "deny"],
+      ["2024-11-02", "23:50", "23:45", "2024-11-04T04:30:00Z", "allow"],
+      ["2024-11-03", "23:50", "23:45", "2024-11-04T04:30:00Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{
+        timezone: "America/New_York", dates: [{ date, times: [{ start, end }] }],
+      }] }],
+    } }).outcome).toBe(expected);
+  });
+
+  it("never aliases a BCE instant to a CE date-specific grant", () => {
+    expect(core.evaluate({ action: "files.read", at: Date.parse("0000-01-01T12:00:00Z"), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC",
+        dates: [{ date: "0001-01-01", times: [{ start: "09:00", end: "17:00" }] }],
+      }] }],
+    } }).code).toBe("no-applicable-grant");
+  });
+
   it("rejects scheduled instants outside Date range as AuthorizationFault", () => {
     expect(() => core.evaluate({ action: "files.read", at: Number.MAX_SAFE_INTEGER, snapshot: {
       knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", weeks: [] }] }],
