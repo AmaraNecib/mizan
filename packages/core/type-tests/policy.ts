@@ -39,3 +39,12 @@ evaluate({ ...facts, policy: importedPolicy, actionPolicy: { unknownPermissions:
 // @ts-expect-error reusable policy must use the declared closed behavior union
 const invalidImported: AuthorizationPolicy<"low"> = { riskLevels: ["low"], defaults: { unknownPermissions: "typo" } };
 void invalidImported;
+
+const recurringFact = {
+  permission: "reports.read",
+  effect: "grant",
+  schedules: [{ timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }] }],
+} as const satisfies import("@mizan/core").EffectiveFact;
+evaluate({ ...facts, snapshot: { knownActions: ["reports.read"], facts: [recurringFact] } });
+// @ts-expect-error independently restricted schedules are plural
+const badSingular: import("@mizan/core").EffectiveFact = { permission: "reports.read", effect: "grant", schedule: { timezone: "UTC" } };
