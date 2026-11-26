@@ -112,6 +112,29 @@ describe("expandRoles", () => {
     expect(() => expandRoles([], [], [{ permission: "files.read", effect: "deny", schedules }])).toThrow(AuthorizationFault);
   });
 
+  test.each(["UCT", "Universal", "Zulu", "Etc/UCT", "Etc/Universal", "Etc/Zulu"])(
+    "preserves runtime-supported named UTC alias %s during normalization",
+    (timezone) => {
+      let runtimeSupportsAlias = true;
+      try { new Intl.DateTimeFormat("en-US", { timeZone: timezone }); }
+      catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        runtimeSupportsAlias = false;
+      }
+      const input = [{ permission: "files.read", effect: "grant", schedules: [{
+        timezone, dates: [{ date: "1970-01-01", times: [{ start: "00:00", end: "01:00" }] }],
+      }] }];
+      if (!runtimeSupportsAlias) {
+        expect(() => expandRoles([], [], input)).toThrow(AuthorizationFault);
+        return;
+      }
+      const { facts } = expandRoles([], [], input);
+      expect(facts[0]?.schedules?.[0]?.timezone).toBe(timezone);
+      expect(evaluate({ action: "files.read", at: 0, snapshot: { facts, knownActions: ["files.read"] } }))
+        .toEqual({ outcome: "allow", code: "granted", recognition: "known" });
+    },
+  );
+
   test("appends validated direct facts without mutating caller input", () => {
     const directFacts = [{ permission: "files.read", effect: "deny" as const, scope: { org: "north" } }];
     const before = structuredClone(directFacts);

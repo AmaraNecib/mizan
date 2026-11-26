@@ -23,7 +23,7 @@ When start is later than end, the window crosses midnight. Its late part applies
 
 ## Timezones and DST
 
-Each schedule names an explicit runtime-supported IANA timezone, including `UTC`. Fixed-offset identifiers are rejected, including GMT and Greenwich aliases such as `GMT0`, `Etc/GMT` and case variants of `Etc/GMT+2`. UTC names such as `UTC` and `Etc/UTC` remain supported. The implementation uses standard `Intl` APIs with Gregorian calendar, Latin digits and a 00-through-23 hour cycle. It never uses the server's implicit local timezone. Zone rules come from the runtime's timezone database.
+Each schedule names an explicit IANA timezone that the runtime's `Intl` APIs support. `UTC`, `Etc/UTC`, `UCT`, `Universal`, `Zulu`, `Etc/UCT`, `Etc/Universal` and `Etc/Zulu` are named UTC aliases, not numeric-offset syntax. They are supported when the runtime recognizes them; support is not guaranteed across runtimes or timezone-database versions. Unsupported names raise `AuthorizationFault`. Fixed-offset identifiers are rejected, including GMT and Greenwich aliases such as `GMT0`, `Etc/GMT` and case variants of `Etc/GMT+2`. The implementation uses standard `Intl` APIs with Gregorian calendar, Latin digits and a 00-through-23 hour cycle. It never uses the server's implicit local timezone. Zone rules come from the runtime's timezone database.
 
 An instant matches its local wall-clock label. During spring-forward, missing labels never occur and never match. During fall-back, both instants with the same repeated label match. Endpoints are not shifted to fill a gap, and no earlier/later fold offset is chosen. Overnight windows use adjacent local calendar dates across DST, not an instant minus 24 hours.
 

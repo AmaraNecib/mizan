@@ -166,9 +166,44 @@ describe("@mizan/core direct evaluator", () => {
     },
   );
 
-  it.each(["UTC", "Etc/UTC"])("retains the supported UTC timezone name %s", (timezone) => {
-    expect(core.evaluate({ action: "files.read", at: 0, snapshot: { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone, weeks: [{ day: "thursday", times: [{ start: "00:00", end: "01:00" }] }] }] }] } }).outcome).toBe("allow");
-  });
+  it.each(["UTC", "Etc/UTC", "UCT", "Universal", "Zulu", "Etc/UCT", "Etc/Universal", "Etc/Zulu"])(
+    "evaluates named UTC timezone %s at active and inactive boundaries for grants and denials",
+    (timezone) => {
+      const evaluateSchedule = (zone: string, effect: "grant" | "deny", at: number) => {
+        const facts: core.EffectiveFact[] = [{
+          permission: "files.read", effect,
+          schedules: [{ timezone: zone, dates: [{ date: "1970-01-01", times: [{ start: "00:00", end: "01:00" }] }] }],
+        }];
+        if (effect === "deny") facts.push({ permission: "files.read", effect: "grant" });
+        return core.evaluate({ action: "files.read", at, snapshot: { knownActions: ["files.read"], facts } });
+      };
+      let runtimeSupportsAlias = true;
+      try { new Intl.DateTimeFormat("en-US", { timeZone: timezone }); }
+      catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        runtimeSupportsAlias = false;
+      }
+      if (!runtimeSupportsAlias) {
+        for (const effect of ["grant", "deny"] as const) {
+          for (const at of [0, 3_600_000]) {
+            expect(() => evaluateSchedule(timezone, effect, at)).toThrow(core.AuthorizationFault);
+          }
+        }
+        return;
+      }
+      for (const [effect, at, expected] of [
+        ["grant", 0, { outcome: "allow", code: "granted", recognition: "known" }],
+        ["grant", 3_600_000, { outcome: "deny", code: "no-applicable-grant" }],
+        ["deny", 0, { outcome: "deny", code: "explicit-deny" }],
+        ["deny", 3_600_000, { outcome: "allow", code: "granted", recognition: "known" }],
+      ] as const) {
+        const aliasResult = evaluateSchedule(timezone, effect, at);
+        const utcResult = evaluateSchedule("UTC", effect, at);
+        expect(aliasResult).toEqual(expected);
+        expect(aliasResult).toEqual(utcResult);
+      }
+    },
+  );
 
   it("preserves the gallery UTC weekday boundaries at millisecond precision", () => {
     const fact: core.EffectiveFact = { permission: "cars.delete", effect: "grant", schedules: [{ timezone: "UTC",
