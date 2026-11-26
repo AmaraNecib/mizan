@@ -227,6 +227,23 @@ describe("@mizan/compose one-source authorizer", () => {
     await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
   });
 
+  it("shares the clock high-water mark across handles from one authorizer", async () => {
+    const samples = [1_000, 1_001, 1_000, 1_001];
+    const authorizer = createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: {
+        "files.read": { source: accept({
+          contribution: "permissions", recognitionDomains: ["catalog"],
+          resolve: async (query) => complete(query.action),
+        }, requirements), recognitionRequirements: ["catalog"] },
+      },
+      clock: () => samples.shift()!,
+    });
+    await expect(authorizer.forContext({}).decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    await expect(authorizer.forContext({}).can("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+  });
+
   it("accepts equal clock samples and keeps clock state per authorizer", async () => {
     const samples = [2_000, 2_000, 1_000, 1_001];
     const sharedClock = () => samples.shift()!;
@@ -248,7 +265,7 @@ describe("@mizan/compose one-source authorizer", () => {
   });
 
   it("keeps the high-water mark after invalid and decreasing clock samples", async () => {
-    const samples: unknown[] = [1_000, 1_001, Number.NaN, 1_001, 1_002, 1_001, 1_002, 1_002, 1_003];
+    const samples: unknown[] = [1_000, 1_002, Number.NaN, 1_001, 1_001, 1_002, 1_002];
     const authorizer = createAuthorizer({
       policy,
       bindContext: () => binding,
@@ -263,12 +280,12 @@ describe("@mizan/compose one-source authorizer", () => {
     const handle = authorizer.forContext({});
     await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
     await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
-    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
     await expect(handle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
     await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
   });
 
-  it("checks clock samples in invocation order rather than async completion order", async () => {
+  it("checks actual clock samples despite out-of-order async completion", async () => {
     let releaseFirst!: () => void;
     let releaseSecond!: () => void;
     let resolvers = 0;
