@@ -24,6 +24,10 @@ export type {
   CoreDecision,
   EffectiveFact,
   EvaluationInput,
+  AuthorizationPolicy,
+  ActionPolicy,
+  RecognitionSettings,
+  UnknownPermissionBehavior,
   Scope,
 } from "./direct-evaluation.js";
 

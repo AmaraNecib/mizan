@@ -343,6 +343,39 @@ describe("@mizan/core direct evaluator", () => {
     })).toEqual({ outcome: "deny", code: "no-applicable-grant" });
   });
 
+  it("applies risk policy exceptions only to active wildcard grants and preserves denial precedence", () => {
+    const policy = { riskLevels: ["low", "critical"], byRisk: { critical: { unknownPermissions: "allow-if-wildcard-granted" } } };
+    const input = { action: "runtime.read", at: 5, policy, actionPolicy: { risk: "critical" }, snapshot: {
+      knownActions: [], facts: [{ permission: "runtime.*", effect: "grant" as const }],
+    } };
+    expect(core.evaluate(input as never)).toEqual({ outcome: "allow", code: "granted", recognition: "wildcard-exception" });
+    expect(core.evaluate({ ...input, snapshot: { ...input.snapshot, facts: [{ permission: "runtime.read", effect: "grant" as const }] } } as never))
+      .toEqual({ outcome: "deny", code: "unknown-action" });
+    expect(core.evaluate({ ...input, snapshot: { ...input.snapshot, facts: [...input.snapshot.facts, { permission: "runtime.*", effect: "deny" as const }] } } as never))
+      .toEqual({ outcome: "deny", code: "explicit-deny" });
+  });
+
+  it("uses exact then longest namespace then global risk rules", () => {
+    const input = { action: "files.admin.read", at: 0, snapshot: { knownActions: [], facts: [
+      { permission: "files.*", effect: "grant" as const },
+    ] }, policy: {
+      riskLevels: ["low", "critical"],
+      risk: { "*": "low", "files.*": "critical", "files.admin.read": "low" },
+      byRisk: { critical: { unknownPermissions: "allow-if-wildcard-granted" } },
+    } };
+    expect(core.evaluate(input as never)).toEqual({ outcome: "deny", code: "unknown-action" });
+    expect(core.evaluate({ ...input, action: "files.other" } as never).outcome).toBe("allow");
+    expect(core.evaluate({ ...input, action: "other.read" } as never).outcome).toBe("deny");
+  });
+
+  it("rejects duplicate risk labels and malformed policy rules at runtime", () => {
+    const base = { action: "files.read", at: 0, snapshot: { knownActions: ["files.read"], facts: [] } };
+    expect(() => core.evaluate({ ...base, policy: { riskLevels: ["low", "low"] } } as never)).toThrow(core.AuthorizationFault);
+    expect(() => core.evaluate({ ...base, policy: { riskLevels: ["low"], defaults: { unknownPermissions: "allow-if-wildcard-granty" } } } as never)).toThrow(core.AuthorizationFault);
+    expect(() => core.evaluate({ ...base, policy: { riskLevels: ["low"], risk: { "files.**": "low" } } } as never)).toThrow(core.AuthorizationFault);
+    expect(() => core.evaluate({ ...base, policy: { riskLevels: ["low"], risk: { "files.*": "critical" } } } as never)).toThrow(core.AuthorizationFault);
+  });
+
   it("projects only the public allowed boolean", () => {
     const decision = core.evaluate({
       action: "files.read",
