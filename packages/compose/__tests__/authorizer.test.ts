@@ -406,6 +406,7 @@ describe("@mizan/compose one-source authorizer", () => {
     };
     const plan = accept(source, requirements);
     source.contribution = "changed";
+    source.recognitionDomains[0] = "changed";
     const authorizer = createAuthorizer({
       policy,
       bindContext: () => binding,
@@ -416,25 +417,32 @@ describe("@mizan/compose one-source authorizer", () => {
   });
 
   it("rejects source and plan status accessors with AuthorizationFault", async () => {
-    const sourceReply = Object.defineProperty({}, "status", { get() { throw new Error("getter ran"); } });
+    let getterCalls = 0;
+    const sourceReply = Object.defineProperty({}, "status", { get() { getterCalls += 1; throw new Error("getter ran"); } });
     const sourceAuthorizer = makeAuthorizer(async () => sourceReply as never);
-    await expect(sourceAuthorizer.forContext({ userId: "user-1", tenantId: "tenant-a" }).decide("files.read"))
-      .rejects.toBeInstanceOf(AuthorizationFault);
+    const sourceHandle = sourceAuthorizer.forContext({ userId: "user-1", tenantId: "tenant-a" });
+    await expect(sourceHandle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+    await expect(sourceHandle.can("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
 
     const source = { contribution: "permissions", recognitionDomains: ["catalog"], resolve: async () => complete() };
     const plan = accept(source, requirements);
-    const planReply = Object.defineProperty({}, "status", { get() { throw new Error("getter ran"); } });
+    const planReply = Object.defineProperty({}, "status", { get() { getterCalls += 1; throw new Error("getter ran"); } });
     const authorizer = createAuthorizer({
       policy, bindContext: () => binding,
       actions: { "files.read": { source: { ...plan, resolve: async () => planReply as never }, recognitionRequirements: ["catalog"] } },
       clock: () => 1_000,
     });
-    await expect(authorizer.forContext({}).decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+    const planHandle = authorizer.forContext({});
+    await expect(planHandle.decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+    await expect(planHandle.can("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+    expect(getterCalls).toBe(0);
   });
 
   it("isolates receipt requirements and output metadata across resolutions", async () => {
     const source = { contribution: "permissions", recognitionDomains: ["catalog"], resolve: async (query: Parameters<Source<unknown>["resolve"]>[0]) => complete(query.action) };
     const plan = accept(source, requirements);
+    expect(Object.isFrozen(plan.recognitionDomains)).toBe(true);
+    expect(Object.isFrozen(plan.contributions)).toBe(true);
     let calls = 0;
     const wrappedPlan = {
       ...plan,
@@ -454,6 +462,38 @@ describe("@mizan/compose one-source authorizer", () => {
     await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
     now += 1;
     await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+  });
+
+  it("keeps structural plan method declarations isolated after construction", async () => {
+    const source: Source<unknown> = {
+      contribution: "permissions", recognitionDomains: ["catalog"],
+      resolve: (query) => complete(query.action),
+    };
+    const accepted = accept(source, requirements);
+    const contributions = ["permissions"];
+    const domains = ["catalog"];
+    const plan = {
+      contributions, recognitionDomains: domains,
+      async resolve(query: Parameters<typeof accepted.resolve>[0]) {
+        const result = await accepted.resolve(query);
+        if (result.status !== "complete") return result;
+        return { ...result, selected: result.selected.map((receipt) => ({
+          ...receipt, evidence: {
+            ...receipt.evidence, contribution: this.contributions[0]!,
+            recognitionDomains: this.recognitionDomains,
+          },
+        })) };
+      },
+    };
+    const authorizer = createAuthorizer({
+      policy, bindContext: () => binding,
+      actions: { "files.read": { source: plan, recognitionRequirements: ["catalog"] } },
+      clock: () => 1_000,
+    });
+    contributions[0] = "changed";
+    domains[0] = "changed";
+    await expect(authorizer.forContext({}).decide("files.read"))
+      .resolves.toEqual({ outcome: "allow", code: "granted", recognition: "known" });
   });
 
   it("turns circular and deeply nested source facts into typed faults", async () => {

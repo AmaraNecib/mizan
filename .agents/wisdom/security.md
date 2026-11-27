@@ -23,3 +23,9 @@ A resolver can return `null` (or `undefined`) instead of a proper `SourceOutcome
 The memory adapter returns `SourceOutcome` with facts only — no `decision` field. The core owns the decision. An adapter that smuggles a final allow/deny breaks the separation and can produce conflicting outcomes.
 
 **Always**: Verify adapters return facts, not decisions. Test that `"decision" in outcome` is false.
+
+## Copy validated data without changing its meaning
+
+Compose review found that enumerable-only copies dropped checked policy fields, and shared receipt requirements let one resolution change later acceptance. Reading a status getter before validation also bypassed the typed-fault contract.
+
+**Always**: Copy checked own data descriptors, including non-enumerable fields. Reject accessors before reading discriminants. Give method callbacks isolated declaration copies and each receipt its own acceptance requirements. Bound recursive data validation and reject cycles with `AuthorizationFault`.

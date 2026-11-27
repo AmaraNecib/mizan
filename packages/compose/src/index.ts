@@ -83,8 +83,6 @@ type Authorizer<Context, Actions extends Record<string, unknown>> = {
 };
 type RiskRegistration<Levels extends readonly string[]> = { readonly riskLevels: Levels } & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels">;
 type ActionConfig<Context, Risk extends string> = ActionDefinition<Context, Risk>;
-type BoundContext<Bind extends (context: any) => ContextBinding> =
-  Parameters<Bind>[0] extends undefined ? unknown : Parameters<Bind>[0];
 
 function fault(message: string): never {
   throw new AuthorizationFault(message);
@@ -356,20 +354,20 @@ export function accept<Context>(source: Source<Context>, requirements: Acceptanc
 }
 
 export function createAuthorizer<
+  Context,
   const Levels extends readonly string[],
-  const Bind extends (context: any) => ContextBinding,
-  const Actions extends Record<string, ActionConfig<BoundContext<Bind>, Levels[number]>>,
-  const Routes extends Record<string, ActionConfig<BoundContext<Bind>, Levels[number]>> = {},
+  const Actions extends Record<string, ActionConfig<Context, Levels[number]>>,
+  const Routes extends Record<string, ActionConfig<Context, Levels[number]>> = {},
 >(config: {
   readonly policy: RiskRegistration<Levels>;
-  readonly bindContext: Bind;
+  readonly bindContext: (context: Context) => ContextBinding;
   readonly actions: Actions;
   readonly routes?: Routes;
   readonly clock?: () => number;
-}): Authorizer<BoundContext<Bind>, Actions> {
+}): Authorizer<Context, Actions> {
   const root = recordCopy(config, ["policy", "bindContext", "actions", "routes", "clock"], "Authorizer configuration");
   if (typeof root.bindContext !== "function") fault("bindContext must be a function");
-  const bindContext = root.bindContext as (context: BoundContext<Bind>) => ContextBinding;
+  const bindContext = root.bindContext as (context: Context) => ContextBinding;
   const policy = root.policy;
   if (!isRecord(policy)) fault("Authorizer policy must be an object");
   const policyRecord = recordCopy(policy, ["riskLevels", "defaults", "risk", "byRisk"], "Authorizer policy");
@@ -396,20 +394,25 @@ export function createAuthorizer<
     return sample;
   };
 
-  const validateDefinition = (key: string, value: unknown, isRoute: boolean): ActionConfig<BoundContext<Bind>, Levels[number]> => {
+  const validateDefinition = (key: string, value: unknown, isRoute: boolean): ActionConfig<Context, Levels[number]> => {
     if (isRoute ? !isRoutePattern(key) : !isConcreteAction(key)) fault("Action or route key is malformed");
     const definition = recordCopy(value, ["source", "recognitionRequirements", "policy"], "Action definition");
     const sourcePlan = recordCopy(definition.source, ["contributions", "recognitionDomains", "resolve"], "Evidence plan");
     if (typeof sourcePlan.resolve !== "function") fault("Action source must be an evidence plan");
-    const resolvePlan = sourcePlan.resolve as EvidencePlan<BoundContext<Bind>>["resolve"];
+    const resolvePlan = sourcePlan.resolve as EvidencePlan<Context>["resolve"];
     const requirements = stringArray(definition.recognitionRequirements, "recognitionRequirements");
     const contributions = stringArray(sourcePlan.contributions, "Evidence plan contributions");
     if (contributions.length !== 1) fault("Issue 60 supports exactly one evidence contribution");
     const planDomains = stringArray(sourcePlan.recognitionDomains, "Evidence plan recognitionDomains");
-    const isolatedPlan: EvidencePlan<BoundContext<Bind>> = {
+    const planReceiver = Object.freeze({
+      contributions: Object.freeze([...contributions]),
+      recognitionDomains: Object.freeze([...planDomains]),
+      resolve: resolvePlan,
+    });
+    const isolatedPlan: EvidencePlan<Context> = {
       contributions: [...contributions],
       recognitionDomains: [...planDomains],
-      resolve: (query) => resolvePlan.call(sourcePlan, query),
+      resolve: (query) => resolvePlan.call(planReceiver, query),
     };
     if (requirements.some((domain) => !planDomains.includes(domain))) fault("Evidence plan does not cover required recognition domains");
     if (definition.policy !== undefined) {
@@ -427,11 +430,11 @@ export function createAuthorizer<
       recognitionRequirements: [...requirements],
       ...(definition.policy === undefined ? {} : { policy: cloneData(definition.policy, "Action policy") }),
     };
-    return isolated as unknown as ActionConfig<BoundContext<Bind>, Levels[number]>;
+    return isolated as unknown as ActionConfig<Context, Levels[number]>;
   };
-  const checkedActions = new Map<string, ActionConfig<BoundContext<Bind>, Levels[number]>>();
+  const checkedActions = new Map<string, ActionConfig<Context, Levels[number]>>();
   for (const [key, value] of Object.entries(actions)) checkedActions.set(key, validateDefinition(key, value, false));
-  const checkedRoutes = new Map<string, ActionConfig<BoundContext<Bind>, Levels[number]>>();
+  const checkedRoutes = new Map<string, ActionConfig<Context, Levels[number]>>();
   for (const [key, value] of Object.entries(routes)) checkedRoutes.set(key, validateDefinition(key, value, true));
   const policyProbe = {
     action: "mizan.compose.validation",
@@ -453,7 +456,7 @@ export function createAuthorizer<
   }
 
   return {
-    forContext(context: BoundContext<Bind>, options = {}) {
+    forContext(context: Context, options = {}) {
       const opts = recordCopy(options, ["signal"], "forContext options");
       const signal = opts.signal as CancellationSignal | undefined;
       if (signal !== undefined && (typeof signal !== "object" || signal === null || typeof signal.aborted !== "boolean")) {
@@ -470,7 +473,7 @@ export function createAuthorizer<
         const definition = exact ?? (selectedRoute === undefined ? undefined : checkedRoutes.get(selectedRoute));
         if (!definition) return { outcome: "deny", code: "unrouted-action" } as Decision;
         const now = sampleClock();
-        const query: SourceQuery<BoundContext<Bind>> = {
+        const query: SourceQuery<Context> = {
           ...base,
           action,
           context: boundContext,
@@ -514,5 +517,5 @@ export function createAuthorizer<
         },
       };
     },
-  } as Authorizer<BoundContext<Bind>, Actions>;
+  } as Authorizer<Context, Actions>;
 }
