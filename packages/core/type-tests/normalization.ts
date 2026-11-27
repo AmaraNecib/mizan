@@ -8,6 +8,8 @@ const schedules = [
   { timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }] },
   { timezone: "UTC", dates: [{ date: "2024-01-01", times: [] }] },
   { timezone: "UTC", weeks: [], dates: [] },
+  { timezone: "UTC", weeks: [] },
+  { timezone: "UTC", dates: [] },
 ] as const satisfies readonly import("@mizan/core").ActivitySchedule[];
 // @ts-expect-error A schedule must supply weekly windows, dated windows, or both.
 const invalidSchedule: import("@mizan/core").ActivitySchedule = { timezone: "UTC" };

@@ -54,6 +54,52 @@ describe("@mizan/core direct evaluator", () => {
     expect(counts.afterEvictedUtc).toBe(counts.afterEvictionSet + 1);
   });
 
+  it("rejects holes and extra properties at every schedule array level", () => {
+    const nestings: readonly ((entries: unknown[]) => unknown)[] = [
+      (entries) => entries,
+      (entries) => [{ timezone: "UTC", weeks: entries }],
+      (entries) => [{ timezone: "UTC", dates: entries }],
+      (entries) => [{ timezone: "UTC", weeks: [{ day: "monday", times: entries }] }],
+      (entries) => [{ timezone: "UTC", dates: [{ date: "2024-01-01", times: entries }] }],
+    ];
+    for (const nest of nestings) {
+      for (const entries of [new Array(1), Object.assign([], { note: "unsupported" })]) {
+        expect(() => core.evaluate({ action: "files.read", at: 0, snapshot: {
+          knownActions: ["files.read"], facts: [{ permission: "other.read", effect: "deny", schedules: nest(entries) }],
+        } } as never)).toThrow(core.AuthorizationFault);
+      }
+    }
+  });
+
+  it("revalidates ordinary caller-owned schedules on every evaluation", () => {
+    const window = { start: "09:00", end: "17:00" };
+    const schedule = { timezone: "UTC", weeks: [{ day: "monday" as const, times: [window] }] };
+    const input = { action: "files.read", at: Date.parse("2024-01-01T10:00:00Z"), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant" as const, schedules: [schedule] }],
+    } };
+    expect(core.evaluate(input).outcome).toBe("allow");
+    window.end = "10:00";
+    expect(core.evaluate(input).code).toBe("no-applicable-grant");
+    window.end = "24:00";
+    expect(() => core.evaluate(input)).toThrow(core.AuthorizationFault);
+  });
+
+  it.each(["2000-02-29", "9999-12-31"])("matches valid Gregorian boundary date %s with an exclusive end", (date) => {
+    const snapshot: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{
+      permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", dates: [{
+        date, times: [{ start: "12:00", end: "13:00" }],
+      }] }],
+    }] };
+    expect(core.evaluate({ action: "files.read", at: Date.parse(`${date}T12:00:00Z`), snapshot }).outcome).toBe("allow");
+    expect(core.evaluate({ action: "files.read", at: Date.parse(`${date}T13:00:00Z`), snapshot }).code).toBe("no-applicable-grant");
+  });
+
+  it("rejects a non-leap Gregorian century date on an irrelevant denial", () => {
+    expect(() => core.evaluate({ action: "files.read", at: 0, snapshot: { knownActions: ["files.read"], facts: [{
+      permission: "other.read", effect: "deny", schedules: [{ timezone: "UTC", dates: [{ date: "1900-02-29", times: [] }] }],
+    }] } })).toThrow(core.AuthorizationFault);
+  });
+
   it("applies recurring schedules as OR windows within each schedule and AND across schedules", () => {
     const fact: core.EffectiveFact = {
       permission: "files.read", effect: "grant",

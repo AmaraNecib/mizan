@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { evaluate } from "@mizan/core";
 
 const OriginalDateTimeFormat = Intl.DateTimeFormat;
@@ -19,24 +20,26 @@ try {
       weeks: [{ day: "monday", times: [{ start: "09:00", end: "17:00" }] }],
     }],
   }));
-  const evaluateFacts = (scheduleFacts) => evaluate({
+  const evaluateFacts = (scheduleFacts, hour = 10) => evaluate({
     action: "files.read",
-    at: Date.UTC(2024, 0, 1, 10),
+    at: Date.UTC(2024, 0, 1, hour),
     snapshot: { knownActions: ["files.read"], facts: scheduleFacts },
   });
 
   const sameZoneFacts = facts(Array(100).fill("UTC"));
-  evaluateFacts(sameZoneFacts);
+  assert.equal(evaluateFacts(sameZoneFacts, 9).outcome, "allow");
+  assert.equal(evaluateFacts(sameZoneFacts, 17).code, "no-applicable-grant");
   const afterSameZone = constructions;
-  evaluateFacts(sameZoneFacts);
+  assert.equal(evaluateFacts(sameZoneFacts).outcome, "allow");
   const afterRepeat = constructions;
-  evaluateFacts(facts(["America/New_York", "America/New_York"]));
+  assert.equal(evaluateFacts(facts(["America/New_York", "America/New_York"])).code, "no-applicable-grant");
   const afterSecondZone = constructions;
 
   const supportedZones = Intl.supportedValuesOf("timeZone").slice(0, 101);
-  evaluateFacts(facts(supportedZones, "other.read"));
+  assert.equal(evaluateFacts(facts(supportedZones, "other.read")).code, "no-applicable-grant");
   const afterEvictionSet = constructions;
-  evaluateFacts(facts(["UTC"]));
+  assert.equal(evaluateFacts(facts(["UTC"]), 9).outcome, "allow");
+  assert.equal(evaluateFacts(facts(["UTC"]), 17).code, "no-applicable-grant");
   const afterEvictedUtc = constructions;
   results = { afterSameZone, afterRepeat, afterSecondZone, afterEvictionSet, afterEvictedUtc };
 } finally {
