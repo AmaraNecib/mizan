@@ -29,3 +29,9 @@ The memory adapter returns `SourceOutcome` with facts only — no `decision` fie
 Compose review found that enumerable-only copies dropped checked policy fields, and shared receipt requirements let one resolution change later acceptance. Reading a status getter before validation also bypassed the typed-fault contract.
 
 **Always**: Copy checked own data descriptors, including non-enumerable fields. Reject accessors before reading discriminants. Give method callbacks isolated declaration copies and each receipt its own acceptance requirements. Bound recursive data validation and reject cycles with `AuthorizationFault`.
+
+## Bound snapshot copies by width and text as well as depth
+
+Depth and cycle checks do not bound broad arrays, wide scopes or repeated references. Compose now checks root array lengths before key enumeration and shares entry/text budgets across facts and known actions. Oversized evidence is a contract fault, never a partial snapshot. Removing the receipt-tree clone is safe only when its container and each field still receive descriptor-based validation. Keep the source and structural-plan snapshot copies because public plan wrappers can mutate their results.
+
+**Always**: Count repeated occurrences, object property names and both snapshot arrays. Document reflection and source-allocation costs that JavaScript validation cannot prevent. Do not describe a traversal budget as an exact memory bound.

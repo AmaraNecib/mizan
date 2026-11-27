@@ -111,13 +111,20 @@ function recordCopy(value: unknown, allowed: readonly string[], label: string): 
   }
   return result;
 }
-function cloneData(value: unknown, label: string, depth = 0, ancestors = new WeakSet<object>()): unknown {
+type SnapshotBudget = { entries: number; text: number };
+function spendSnapshotBudget(budget: SnapshotBudget | undefined, kind: keyof SnapshotBudget, amount: number): void {
+  if (!budget) return;
+  if (amount > budget[kind]) fault(`Source snapshot exceeds the maximum ${kind} budget`);
+  budget[kind] -= amount;
+}
+function cloneData(value: unknown, label: string, depth = 0, ancestors = new WeakSet<object>(), budget?: SnapshotBudget): unknown {
   if (depth > 64) fault(`${label} exceeds the maximum data depth`);
   if (Array.isArray(value)) {
     if (ancestors.has(value)) fault(`${label} cannot contain circular data`);
     ancestors.add(value);
     if (Object.getPrototypeOf(value) !== Array.prototype) fault(`${label} must use a plain array`);
     const length = value.length;
+    spendSnapshotBudget(budget, "entries", length);
     const copy: unknown[] = [];
     for (const key of Reflect.ownKeys(value)) {
       if (key !== "length" && (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/u.test(key) || Number(key) >= length)) {
@@ -128,7 +135,7 @@ function cloneData(value: unknown, label: string, depth = 0, ancestors = new Wea
       for (let index = 0; index < length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         if (!descriptor || !("value" in descriptor)) fault(`${label} cannot contain holes or accessors`);
-        copy.push(cloneData(descriptor.value, label, depth + 1, ancestors));
+        copy.push(cloneData(descriptor.value, label, depth + 1, ancestors, budget));
       }
       return copy;
     } finally {
@@ -138,15 +145,19 @@ function cloneData(value: unknown, label: string, depth = 0, ancestors = new Wea
   if (isRecord(value)) {
     if (ancestors.has(value)) fault(`${label} cannot contain circular data`);
     ancestors.add(value);
+    const keys = Reflect.ownKeys(value);
+    spendSnapshotBudget(budget, "entries", keys.length);
     const copy: Record<string, unknown> = Object.create(null);
-    for (const key of Reflect.ownKeys(value)) {
+    for (const key of keys) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (typeof key !== "string" || !descriptor || !("value" in descriptor)) fault(`${label} must contain plain data properties`);
-      copy[key] = cloneData(descriptor.value, label, depth + 1, ancestors);
+      spendSnapshotBudget(budget, "text", key.length);
+      copy[key] = cloneData(descriptor.value, label, depth + 1, ancestors, budget);
     }
     ancestors.delete(value);
     return copy;
   }
+  if (typeof value === "string") spendSnapshotBudget(budget, "text", value.length);
   if (value === null || ["string", "number", "boolean", "undefined"].includes(typeof value)) return value;
   fault(`${label} must contain only data values`);
 }
@@ -239,12 +250,17 @@ function validatePlanResolution(value: unknown, plan: EvidencePlan<unknown>, que
   }
   if (status !== "complete") fault("Evidence plan returned an unknown status");
   const result = recordCopy(value, ["status", "selected"], "Complete plan result");
-  const selected = cloneData(result.selected, "Selected evidence receipts");
-  if (!Array.isArray(selected) || selected.length !== 1) fault("One-source plan must return exactly one selected receipt");
-  const receipt = recordCopy(selected[0], ["evidence", "requirements"], "Evidence receipt");
-  const evidence = receipt.evidence as SourceOutcome;
-  if (!evidence || typeof evidence !== "object" || evidence.status !== "complete") fault("Evidence receipt is not complete evidence");
-  const checked = validateCompleteOutcome(evidence, {
+  const selected: unknown = result.selected;
+  if (!Array.isArray(selected) || Object.getPrototypeOf(selected) !== Array.prototype || selected.length !== 1) {
+    fault("One-source plan must return exactly one selected receipt in a plain array");
+  }
+  for (const key of Reflect.ownKeys(selected)) {
+    if (key !== "0" && key !== "length") fault("Selected evidence receipts contain unsupported array properties");
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(selected, "0");
+  if (!descriptor || !("value" in descriptor)) fault("Selected evidence receipts cannot contain holes or accessors");
+  const receipt = recordCopy(descriptor.value, ["evidence", "requirements"], "Evidence receipt");
+  const checked = validateCompleteOutcome(receipt.evidence, {
     contribution: plan.contributions[0]!,
     recognitionDomains: plan.recognitionDomains,
   });
@@ -266,9 +282,13 @@ function validateCompleteOutcome(value: unknown, source: Pick<Source<unknown>, "
     fault("Source recognitionDomains do not match their declaration");
   }
   const snapshot = recordCopy(record.snapshot, ["facts", "knownActions"], "Source snapshot");
-  const facts = cloneData(snapshot.facts, "Source facts");
-  const knownActions = cloneData(snapshot.knownActions, "Source knownActions");
-  if (!Array.isArray(facts) || !Array.isArray(knownActions)) fault("Source snapshot needs facts and knownActions arrays");
+  for (const value of [snapshot.facts, snapshot.knownActions]) {
+    if (!Array.isArray(value)) fault("Source snapshot needs facts and knownActions arrays");
+    if (value.length > 10_000) fault("Source snapshot exceeds the maximum array length");
+  }
+  const budget: SnapshotBudget = { entries: 100_000, text: 1_000_000 };
+  const facts = cloneData(snapshot.facts, "Source facts", 0, new WeakSet(), budget);
+  const knownActions = cloneData(snapshot.knownActions, "Source knownActions", 0, new WeakSet(), budget);
   const assurance = recordCopy(record.assurance, ["consistency", "dataAsOf", "revision"], "Source assurance");
   if ((assurance.consistency !== "snapshot" && assurance.consistency !== "current")
     || typeof assurance.dataAsOf !== "number" || !Number.isSafeInteger(assurance.dataAsOf)
@@ -309,16 +329,6 @@ function patternMatches(action: string, pattern: string): boolean {
 function routeSpecificity(pattern: string): number {
   return pattern === "*" ? 0 : pattern.length;
 }
-function copySnapshot(snapshot: AuthorizationSnapshot, knownActions: readonly string[]): AuthorizationSnapshot {
-  const copiedKnown = cloneData(snapshot.knownActions, "Source knownActions");
-  const copiedFacts = cloneData(snapshot.facts, "Source facts");
-  if (!Array.isArray(copiedKnown) || !Array.isArray(copiedFacts)) fault("Source snapshot needs arrays");
-  return {
-    knownActions: [...copiedKnown as string[], ...knownActions],
-    facts: copiedFacts as AuthorizationSnapshot["facts"],
-  };
-}
-
 export function accept<Context>(source: Source<Context>, requirements: Acceptance): EvidencePlan<Context> {
   const config = recordCopy(source, ["contribution", "recognitionDomains", "resolve"], "Source");
   if (typeof config.contribution !== "string" || config.contribution.length === 0 || typeof config.resolve !== "function") {
@@ -495,7 +505,10 @@ export function createAuthorizer<
         if (result.status === "unacceptable") return { outcome: "indeterminate", code: result.code };
         const receipt = result.selected[0]!;
         const at = sampleClock();
-        const snapshot = copySnapshot(receipt.evidence.snapshot, exact ? [action] : []);
+        const sourceSnapshot = receipt.evidence.snapshot;
+        const snapshot = exact
+          ? { facts: sourceSnapshot.facts, knownActions: [...sourceSnapshot.knownActions, action] }
+          : sourceSnapshot;
         const decision = evaluate({
           action,
           snapshot,
