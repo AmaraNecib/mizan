@@ -10,11 +10,16 @@ export type DateActivityWindow = {
   readonly date: string;
   readonly times: readonly ActivityWindow[];
 };
-export type ActivitySchedule = {
-  readonly timezone: string;
-  readonly weeks?: readonly WeeklyActivityWindow[];
-  readonly dates?: readonly DateActivityWindow[];
-};
+export type ActivitySchedule = { readonly timezone: string } & (
+  | {
+      readonly weeks: readonly WeeklyActivityWindow[];
+      readonly dates?: readonly DateActivityWindow[];
+    }
+  | {
+      readonly weeks?: readonly WeeklyActivityWindow[];
+      readonly dates: readonly DateActivityWindow[];
+    }
+);
 
 type Fail = (message: string) => never;
 type NormalizedSchedule = ActivitySchedule;
@@ -39,14 +44,21 @@ function keys(value: Record<string, unknown>, allowed: readonly string[], fail: 
 }
 function array(value: unknown, fail: Fail, label: string): unknown[] {
   if (!Array.isArray(value)) fail(`${label} must be an array`);
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  const length = lengthDescriptor?.value as unknown;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) {
+    fail(`${label} must have a valid length`);
+  }
   const result: unknown[] = [];
-  for (let i = 0; i < value.length; i += 1) {
-    const d = Object.getOwnPropertyDescriptor(value, String(i));
-    if (d === undefined || !("value" in d)) fail(`${label} must contain indexed data properties without holes`);
-    result.push(d.value);
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined || !("value" in descriptor)) {
+      fail(`${label} must contain indexed data properties without holes`);
+    }
+    result.push(descriptor.value);
   }
   for (const key of Reflect.ownKeys(value)) {
-    if (key === "length" || (typeof key === "string" && /^(0|[1-9]\d*)$/u.test(key) && Number(key) < value.length)) continue;
+    if (key === "length" || (typeof key === "string" && /^(0|[1-9]\d*)$/u.test(key) && Number(key) < length)) continue;
     fail(`${label} contains an unsupported property`);
   }
   return result;
@@ -66,6 +78,33 @@ function normalizeTimes(value: unknown, fail: Fail, label: string): readonly Act
     return { start: start as string, end: end as string };
   });
 }
+const TIMEZONE_FORMATTER_CACHE_LIMIT = 100;
+const timezoneFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function timezoneFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = timezoneFormatterCache.get(timezone);
+  if (cached !== undefined) return cached;
+  if (timezoneFormatterCache.size >= TIMEZONE_FORMATTER_CACHE_LIMIT) {
+    const oldestTimezone = timezoneFormatterCache.keys().next().value;
+    if (oldestTimezone !== undefined) timezoneFormatterCache.delete(oldestTimezone);
+  }
+  const formatter = new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
+    timeZone: timezone,
+    calendar: "gregory",
+    numberingSystem: "latn",
+    era: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  timezoneFormatterCache.set(timezone, formatter);
+  return formatter;
+}
+
 function validDate(date: unknown, fail: Fail): string {
   if (typeof date !== "string" || !/^(\d{4})-(\d{2})-(\d{2})$/u.test(date)) fail("Schedule date must be YYYY-MM-DD");
   const [year = 0, month = 0, day = 0] = date.split("-").map(Number);
@@ -82,7 +121,7 @@ export function normalizeSchedules(value: unknown, fail: Fail): readonly Normali
     const schedule = record(entry, fail, "Activity schedule");
     keys(schedule, ["timezone", "weeks", "dates"], fail, "Activity schedule");
     if (typeof schedule.timezone !== "string" || schedule.timezone.length === 0 || /^(?:[+-]\d|(?:Etc\/)?(?:GMT|Greenwich))/iu.test(schedule.timezone)) fail("Schedule timezone must be an IANA named zone");
-    try { new Intl.DateTimeFormat("en-US", { timeZone: schedule.timezone, calendar: "gregory", numberingSystem: "latn", hourCycle: "h23" }); }
+    try { timezoneFormatter(schedule.timezone); }
     catch { fail("Schedule timezone is not supported by this runtime"); }
     if (schedule.weeks === undefined && schedule.dates === undefined) fail("Activity schedule requires weeks or dates");
     const weeks = schedule.weeks === undefined ? [] : array(schedule.weeks, fail, "Schedule weeks").map((entry) => {
@@ -103,7 +142,7 @@ export function normalizeSchedules(value: unknown, fail: Fail): readonly Normali
 function dateParts(timestamp: number, timezone: string, fail: Fail): { year: number; month: number; day: number; weekday: number; minute: number } {
   let parts: Intl.DateTimeFormatPart[];
   try {
-    parts = new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", { timeZone: timezone, era: "short", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(timestamp));
+    parts = timezoneFormatter(timezone).formatToParts(new Date(timestamp));
   } catch { return fail("Scheduled fact instant is outside the supported Date range"); }
   const get = (type: string) => parts.find((part) => part.type === type)?.value;
   // Intl uses era-relative years; Date arithmetic uses astronomical year zero.

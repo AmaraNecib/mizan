@@ -31,6 +31,29 @@ describe("@mizan/core direct evaluator", () => {
     });
   });
 
+  it("reuses a bounded formatter cache for validation and projection", () => {
+    const fixture = `${import.meta.dir}/fixtures/recurring-formatter-count.mjs`;
+    const result = Bun.spawnSync({
+      cmd: ["bun", "run", fixture],
+      cwd: `${import.meta.dir}/..`,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    const counts = JSON.parse(result.stdout.toString()) as {
+      afterSameZone: number;
+      afterRepeat: number;
+      afterSecondZone: number;
+      afterEvictionSet: number;
+      afterEvictedUtc: number;
+    };
+    expect(counts.afterSameZone).toBe(1);
+    expect(counts.afterRepeat).toBe(1);
+    expect(counts.afterSecondZone).toBe(2);
+    expect(counts.afterEvictionSet).toBe(103);
+    expect(counts.afterEvictedUtc).toBe(counts.afterEvictionSet + 1);
+  });
+
   it("applies recurring schedules as OR windows within each schedule and AND across schedules", () => {
     const fact: core.EffectiveFact = {
       permission: "files.read", effect: "grant",
