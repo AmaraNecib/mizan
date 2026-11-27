@@ -1,3 +1,6 @@
+import { normalizeSchedules, scheduleMatches } from "./recurring-time.js";
+import type { ActivitySchedule } from "./recurring-time.js";
+
 /** Exact host-defined dimensions. Omission means global applicability. */
 export type Scope = Readonly<Record<string, string>>;
 
@@ -8,6 +11,7 @@ export type EffectiveFact = {
   readonly startsAt?: number;
   readonly expiresAt?: number;
   readonly provenanceId?: string;
+  readonly schedules?: readonly ActivitySchedule[];
 };
 
 export type AuthorizationSnapshot = {
@@ -70,6 +74,7 @@ const FACT_KEYS = new Set([
   "startsAt",
   "expiresAt",
   "provenanceId",
+  "schedules",
 ]);
 
 function invalid(message: string): never {
@@ -226,6 +231,7 @@ function normalizePolicy(policyValue: unknown, actionPolicyValue: unknown): Norm
   };
 }
 
+type NormalizedFact = Omit<EffectiveFact, "schedules"> & { readonly schedules?: NonNullable<ReturnType<typeof normalizeSchedules>> };
 type NormalizedInput = Omit<EvaluationInput<string>, "policy" | "actionPolicy"> & { readonly policy?: NormalizedPolicy };
 
 function normalizeInput(input: unknown): NormalizedInput {
@@ -243,7 +249,7 @@ function normalizeInput(input: unknown): NormalizedInput {
     if (!isConcreteKey(action)) invalid("Known actions must contain concrete permission keys");
   }
 
-  const facts: EffectiveFact[] = [];
+  const facts: NormalizedFact[] = [];
   for (const entry of copyArray(snapshot.facts, "Snapshot facts")) {
     const fact = copyRecord(entry, "Fact");
     assertKeys(fact, FACT_KEYS, "Fact");
@@ -262,6 +268,7 @@ function normalizeInput(input: unknown): NormalizedInput {
     if (fact.provenanceId !== undefined && typeof fact.provenanceId !== "string") {
       invalid("Fact provenanceId must be a string");
     }
+    const schedules = normalizeSchedules(fact.schedules, invalid);
     facts.push({
       permission: fact.permission,
       effect: fact.effect,
@@ -269,6 +276,7 @@ function normalizeInput(input: unknown): NormalizedInput {
       ...(fact.startsAt === undefined ? {} : { startsAt: fact.startsAt as number }),
       ...(fact.expiresAt === undefined ? {} : { expiresAt: fact.expiresAt as number }),
       ...(fact.provenanceId === undefined ? {} : { provenanceId: fact.provenanceId as string }),
+      ...(schedules === undefined ? {} : { schedules }),
     });
   }
   return {
@@ -306,9 +314,10 @@ function isInScope(factScope: Scope | undefined, requestScope: Scope | undefined
   );
 }
 
-function isActive(fact: EffectiveFact, at: number): boolean {
+function isActive(fact: NormalizedFact, at: number): boolean {
   return (fact.startsAt === undefined || fact.startsAt <= at)
-    && (fact.expiresAt === undefined || at < fact.expiresAt);
+    && (fact.expiresAt === undefined || at < fact.expiresAt)
+    && scheduleMatches(fact.schedules, at, invalid);
 }
 
 /**

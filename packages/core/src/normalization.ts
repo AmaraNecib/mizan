@@ -1,3 +1,5 @@
+import { normalizeSchedules } from "./recurring-time.js";
+import type { ActivitySchedule } from "./recurring-time.js";
 import { AuthorizationFault } from "./direct-evaluation.js";
 import type { EffectiveFact, Scope } from "./direct-evaluation.js";
 
@@ -14,6 +16,7 @@ export type RoleAssignment = {
   readonly startsAt?: number;
   readonly expiresAt?: number;
   readonly provenanceId?: string;
+  readonly schedules?: readonly ActivitySchedule[];
 };
 
 export type NormalizationDiagnostic = {
@@ -30,8 +33,8 @@ export type ExpandRolesResult = {
 
 const MAX_DIAGNOSTICS = 20;
 const DEFINITION_KEYS = new Set(["name", "permissions"]);
-const ASSIGNMENT_KEYS = new Set(["roleName", "scope", "startsAt", "expiresAt", "provenanceId"]);
-const FACT_KEYS = new Set(["permission", "effect", "scope", "startsAt", "expiresAt", "provenanceId"]);
+const ASSIGNMENT_KEYS = new Set(["roleName", "scope", "startsAt", "expiresAt", "provenanceId", "schedules"]);
+const FACT_KEYS = new Set(["permission", "effect", "scope", "startsAt", "expiresAt", "provenanceId", "schedules"]);
 
 function invalid(message: string): never {
   throw new AuthorizationFault(message);
@@ -124,6 +127,7 @@ function fact(value: unknown, name: string): EffectiveFact {
   if (item.effect !== "grant" && item.effect !== "deny") return invalid(`${name} effect must be grant or deny`);
   const factScope = scope(item.scope, `${name} scope`);
   const bounds = validity(item, name);
+  const schedules = normalizeSchedules(item.schedules, invalid);
   if (item.provenanceId !== undefined && typeof item.provenanceId !== "string") return invalid(`${name} provenanceId must be a string`);
   return {
     permission: item.permission,
@@ -131,6 +135,7 @@ function fact(value: unknown, name: string): EffectiveFact {
     ...(factScope === undefined ? {} : { scope: factScope }),
     ...bounds,
     ...(item.provenanceId === undefined ? {} : { provenanceId: item.provenanceId as string }),
+    ...(schedules === undefined ? {} : { schedules }),
   };
 }
 
@@ -175,12 +180,14 @@ export function expandRoles(
     if (typeof assignment.roleName !== "string" || assignment.roleName.length === 0) return invalid("Role assignment roleName must be a non-empty string");
     const assignmentScope = scope(assignment.scope, "Role assignment scope");
     const bounds = validity(assignment, "Role assignment");
+    const schedules = normalizeSchedules(assignment.schedules, invalid);
     if (assignment.provenanceId !== undefined && typeof assignment.provenanceId !== "string") return invalid("Role assignment provenanceId must be a string");
     return {
       roleName: assignment.roleName,
       ...(assignmentScope === undefined ? {} : { scope: assignmentScope }),
       ...bounds,
       ...(assignment.provenanceId === undefined ? {} : { provenanceId: assignment.provenanceId as string }),
+      ...(schedules === undefined ? {} : { schedules }),
     };
   });
   const normalizedDirectFacts = array(directFacts, "Direct facts").map((entry) => fact(entry, "Direct fact"));
@@ -206,12 +213,14 @@ export function expandRoles(
         diagnose({ code: "empty-validity", roleName: assignment.roleName, permission: permission.permission });
         continue;
       }
+      const schedules = [...(assignment.schedules ?? []), ...(permission.schedules ?? [])];
       facts.push({
         permission: permission.permission,
         effect: permission.effect,
         ...(combinedScope.scope === undefined ? {} : { scope: combinedScope.scope }),
         ...bounds,
         ...((permission.provenanceId ?? assignment.provenanceId) === undefined ? {} : { provenanceId: permission.provenanceId ?? assignment.provenanceId }),
+        ...(schedules.length === 0 ? {} : { schedules }),
       });
     }
   }

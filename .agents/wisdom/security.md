@@ -1,5 +1,17 @@
 # Security Wisdom
 
+## Gregorian formatting needs an era for date-specific grants
+
+`Intl.DateTimeFormat` returns era-relative years. Without an explicit era, a BCE instant can look like CE year 0001 and match a date-specific grant. The direct evaluator accepts negative epoch milliseconds, so this is a reachable false allow.
+
+**Always**: Request the Gregorian era and convert BC years to astronomical year numbering before local calendar arithmetic. Keep a public evaluator regression that denies a BCE instant against a CE date grant.
+
+## Timezone rejection must cover aliases and case variants
+
+`Intl.DateTimeFormat` accepts case-insensitive timezone names and fixed-offset aliases such as `GMT0` and `Etc/GMT`. A case-sensitive filter for `Etc/GMT+` misses both aliases and lowercase offset names.
+
+**Always**: Enforce the declared timezone contract before constructing the formatter. Test rejected aliases through `evaluate` and `expandRoles`, plus supported UTC names so validation does not remove the documented exception.
+
 ## Duplicate source names silently override (🟠 Major)
 
 `Map.set()` silently overwrites entries. If a denial source is registered then accidentally re-registered with a grant-only resolver, the denial disappears and authorization could flip to allow.

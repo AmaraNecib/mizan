@@ -31,6 +31,304 @@ describe("@mizan/core direct evaluator", () => {
     });
   });
 
+  it("reuses a bounded formatter cache for validation and projection", () => {
+    const fixture = `${import.meta.dir}/fixtures/recurring-formatter-count.mjs`;
+    const result = Bun.spawnSync({
+      cmd: ["bun", "run", fixture],
+      cwd: `${import.meta.dir}/..`,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    const counts = JSON.parse(result.stdout.toString()) as {
+      afterSameZone: number;
+      afterRepeat: number;
+      afterSecondZone: number;
+      afterEvictionSet: number;
+      afterEvictedUtc: number;
+    };
+    expect(counts.afterSameZone).toBe(1);
+    expect(counts.afterRepeat).toBe(1);
+    expect(counts.afterSecondZone).toBe(2);
+    expect(counts.afterEvictionSet).toBe(103);
+    expect(counts.afterEvictedUtc).toBe(counts.afterEvictionSet + 1);
+  });
+
+  it("rejects holes and extra properties at every schedule array level", () => {
+    const nestings: readonly ((entries: unknown[]) => unknown)[] = [
+      (entries) => entries,
+      (entries) => [{ timezone: "UTC", weeks: entries }],
+      (entries) => [{ timezone: "UTC", dates: entries }],
+      (entries) => [{ timezone: "UTC", weeks: [{ day: "monday", times: entries }] }],
+      (entries) => [{ timezone: "UTC", dates: [{ date: "2024-01-01", times: entries }] }],
+    ];
+    for (const nest of nestings) {
+      for (const entries of [new Array(1), Object.assign([], { note: "unsupported" })]) {
+        expect(() => core.evaluate({ action: "files.read", at: 0, snapshot: {
+          knownActions: ["files.read"], facts: [{ permission: "other.read", effect: "deny", schedules: nest(entries) }],
+        } } as never)).toThrow(core.AuthorizationFault);
+      }
+    }
+  });
+
+  it("revalidates ordinary caller-owned schedules on every evaluation", () => {
+    const window = { start: "09:00", end: "17:00" };
+    const schedule = { timezone: "UTC", weeks: [{ day: "monday" as const, times: [window] }] };
+    const input = { action: "files.read", at: Date.parse("2024-01-01T10:00:00Z"), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant" as const, schedules: [schedule] }],
+    } };
+    expect(core.evaluate(input).outcome).toBe("allow");
+    window.end = "10:00";
+    expect(core.evaluate(input).code).toBe("no-applicable-grant");
+    window.end = "24:00";
+    expect(() => core.evaluate(input)).toThrow(core.AuthorizationFault);
+  });
+
+  it.each(["2000-02-29", "9999-12-31"])("matches valid Gregorian boundary date %s with an exclusive end", (date) => {
+    const snapshot: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{
+      permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", dates: [{
+        date, times: [{ start: "12:00", end: "13:00" }],
+      }] }],
+    }] };
+    expect(core.evaluate({ action: "files.read", at: Date.parse(`${date}T12:00:00Z`), snapshot }).outcome).toBe("allow");
+    expect(core.evaluate({ action: "files.read", at: Date.parse(`${date}T13:00:00Z`), snapshot }).code).toBe("no-applicable-grant");
+  });
+
+  it("rejects a non-leap Gregorian century date on an irrelevant denial", () => {
+    expect(() => core.evaluate({ action: "files.read", at: 0, snapshot: { knownActions: ["files.read"], facts: [{
+      permission: "other.read", effect: "deny", schedules: [{ timezone: "UTC", dates: [{ date: "1900-02-29", times: [] }] }],
+    }] } })).toThrow(core.AuthorizationFault);
+  });
+
+  it("applies recurring schedules as OR windows within each schedule and AND across schedules", () => {
+    const fact: core.EffectiveFact = {
+      permission: "files.read", effect: "grant",
+      schedules: [
+        { timezone: "UTC", weeks: [{ day: "monday", times: [
+          { start: "09:00", end: "10:00" }, { start: "11:00", end: "12:00" },
+        ] }] },
+        { timezone: "UTC", dates: [{ date: "2024-01-01", times: [{ start: "09:30", end: "11:30" }] }] },
+      ],
+    };
+    const evaluateAt = (at: number) => core.evaluate({ action: "files.read", at,
+      snapshot: { knownActions: ["files.read"], facts: [fact] },
+    }).outcome;
+    expect(evaluateAt(Date.UTC(2024, 0, 1, 9, 30))).toBe("allow");
+    expect(evaluateAt(Date.UTC(2024, 0, 1, 10, 30))).toBe("deny");
+    expect(evaluateAt(Date.UTC(2024, 0, 1, 11, 30))).toBe("deny");
+    expect(evaluateAt(Date.UTC(2024, 0, 2, 9, 30))).toBe("deny");
+  });
+
+  it("treats empty conjunction as unrestricted and an empty schedule as inactive", () => {
+    const evaluateFact = (schedules: unknown) => core.evaluate({ action: "files.read", at: 0,
+      snapshot: { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules }] },
+    });
+    expect(evaluateFact([]).outcome).toBe("allow");
+    expect(evaluateFact([{ timezone: "UTC", weeks: [] }]).code).toBe("no-applicable-grant");
+  });
+
+  it("treats equal endpoints as empty for weekly and date grants and denials", () => {
+    const schedules: readonly core.ActivitySchedule[] = [
+      { timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "09:00", end: "09:00" }] }] },
+      { timezone: "UTC", dates: [{ date: "2024-01-01", times: [{ start: "09:00", end: "09:00" }] }] },
+    ];
+    for (const schedule of schedules) for (const effect of ["grant", "deny"] as const) {
+      const facts: core.EffectiveFact[] = [{ permission: "files.read", effect, schedules: [schedule] }];
+      if (effect === "deny") facts.push({ permission: "files.read", effect: "grant" });
+      for (const instant of ["2024-01-01T08:59:59.999Z", "2024-01-01T09:00:00Z", "2024-01-01T09:00:00.001Z"]) {
+        expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot: { knownActions: ["files.read"], facts } }).code)
+          .toBe(effect === "grant" ? "no-applicable-grant" : "granted");
+      }
+    }
+  });
+
+  it("anchors dated overnight windows across the year boundary only to the adjacent date", () => {
+    const snapshot: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", dates: [{ date: "2024-12-31", times: [{ start: "22:00", end: "02:00" }] }] }] }] };
+    for (const [instant, outcome] of [
+      ["2024-12-31T01:00:00Z", "deny"], ["2024-12-31T22:00:00Z", "allow"],
+      ["2025-01-01T01:59:59.999Z", "allow"], ["2025-01-01T02:00:00Z", "deny"],
+      ["2025-01-02T01:00:00Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot }).outcome).toBe(outcome);
+  });
+
+  it("rejects sparse nested times and accessors without invoking caller code", () => {
+    const sparseTimes = new Array(1);
+    let reads = 0;
+    const accessorWeek = Object.defineProperty({ day: "monday" }, "times", { get() { reads += 1; return []; } });
+    for (const week of [{ day: "monday", times: sparseTimes }, accessorWeek]) {
+      expect(() => core.evaluate({ action: "unknown.action", at: 0, snapshot: { knownActions: [], facts: [{ permission: "other.read", effect: "deny", schedules: [{ timezone: "UTC", weeks: [week] }] }] } } as never)).toThrow(core.AuthorizationFault);
+    }
+    expect(reads).toBe(0);
+  });
+
+  it("matches weekly and dated overnight windows on the immediately following local date", () => {
+    const evaluateFact = (schedule: unknown, at: number) => core.evaluate({ action: "files.read", at,
+      snapshot: { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [schedule] }] },
+    }).outcome;
+    const weekly = { timezone: "UTC", weeks: [{ day: "sunday", times: [{ start: "22:00", end: "06:00" }] }] };
+    expect(evaluateFact(weekly, Date.UTC(2024, 0, 8, 5, 59))).toBe("allow");
+    expect(evaluateFact(weekly, Date.UTC(2024, 0, 8, 6))).toBe("deny");
+    const dated = { timezone: "UTC", dates: [{ date: "2024-02-29", times: [{ start: "22:00", end: "06:00" }] }] };
+    expect(evaluateFact(dated, Date.UTC(2024, 2, 1, 5))).toBe("allow");
+    expect(evaluateFact(dated, Date.UTC(2024, 2, 2, 5))).toBe("deny");
+  });
+
+  it("uses local wall-clock labels for timezone conversion and DST folds and gaps", () => {
+    const evaluateAt = (timezone: string, start: string, end: string, at: number) => core.evaluate({ action: "files.read", at,
+      snapshot: { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone,
+        dates: [{ date: "2024-03-10", times: [{ start, end }] }, { date: "2024-11-03", times: [{ start, end }] }] }] }] },
+    }).outcome;
+    expect(evaluateAt("America/New_York", "02:00", "03:00", Date.UTC(2024, 2, 10, 7, 30))).toBe("deny");
+    expect(evaluateAt("America/New_York", "01:00", "02:00", Date.UTC(2024, 10, 3, 5, 30))).toBe("allow");
+    expect(evaluateAt("America/New_York", "01:00", "02:00", Date.UTC(2024, 10, 3, 6, 30))).toBe("allow");
+    expect(core.evaluate({ action: "files.read", at: Date.UTC(2024, 2, 31, 0, 30), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "Europe/Berlin",
+        dates: [{ date: "2024-03-31", times: [{ start: "01:00", end: "03:00" }] }] }] }],
+    } }).outcome).toBe("allow");
+    for (const at of [Date.UTC(2024, 9, 27, 0, 30), Date.UTC(2024, 9, 27, 1, 30)]) {
+      expect(core.evaluate({ action: "files.read", at, snapshot: {
+        knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "Europe/Berlin",
+          dates: [{ date: "2024-10-27", times: [{ start: "02:00", end: "03:00" }] }] }] }],
+      } }).outcome).toBe("allow");
+    }
+  });
+
+  it("validates every schedule before recognition, permission, scope, or time filtering", () => {
+    for (const fact of [
+      { permission: "other.read", effect: "grant", schedules: [{ timezone: "No/Such_Zone", weeks: [] }] },
+      { permission: "files.read", effect: "deny", scope: { tenant: "other" }, schedules: [{ timezone: "UTC", dates: [{ date: "2024-02-30", times: [] }] }] },
+      { permission: "files.read", effect: "grant", startsAt: 100, schedules: [{ timezone: "UTC", weeks: [{ day: "monday", times: [{ start: "24:00", end: "25:00" }] }] }] },
+    ]) expect(() => core.evaluate({ action: "unknown.action", at: 0,
+      snapshot: { knownActions: [], facts: [fact] },
+    } as never)).toThrow(core.AuthorizationFault);
+  });
+
+  it("intersects recurring activity with scope and absolute validity, while active denials still win", () => {
+    const facts = [
+      { permission: "files.read", effect: "grant" as const, scope: { tenant: "a" }, startsAt: 10, expiresAt: 20,
+        schedules: [{ timezone: "UTC", dates: [{ date: "1970-01-01", times: [{ start: "00:00", end: "01:00" }] }] }] },
+      { permission: "files.read", effect: "deny" as const, schedules: [{ timezone: "UTC", weeks: [{ day: "thursday", times: [{ start: "00:00", end: "01:00" }] }] }] },
+    ];
+    const input = { action: "files.read", at: 10, scope: { tenant: "a" }, snapshot: { knownActions: ["files.read"], facts } };
+    expect(core.evaluate(input)).toEqual({ outcome: "deny", code: "explicit-deny" });
+    expect(core.evaluate({ ...input, at: 20, snapshot: { ...input.snapshot, facts: [facts[0]!] } }).code).toBe("no-applicable-grant");
+    expect(core.evaluate({ ...input, scope: { tenant: "b" }, snapshot: { ...input.snapshot, facts: [facts[0]!] } }).code).toBe("no-applicable-grant");
+  });
+
+  it.each([
+    ["fixed offset timezone", [{ timezone: "+02:00", weeks: [] }]],
+    ["missing calendar windows", [{ timezone: "UTC" }]],
+    ["extra schedule field", [{ timezone: "UTC", weeks: [], interval: "daily" }]],
+    ["invalid date", [{ timezone: "UTC", dates: [{ date: "2024-02-30", times: [] }] }]],
+    ["non-data schedule", [new Date()]],
+    ["unsupported singular field", undefined],
+  ])("rejects malformed schedule shape: %s", (_label, schedules) => {
+    const fact = { permission: "files.read", effect: "grant", ...(schedules === undefined ? { schedule: {} } : { schedules }) };
+    expect(() => core.evaluate({ action: "files.read", at: 0,
+      snapshot: { knownActions: ["files.read"], facts: [fact] },
+    } as never)).toThrow(core.AuthorizationFault);
+  });
+
+  it.each(["GMT", "GMT0", "Etc/GMT", "Etc/GMT0", "Greenwich", "Etc/Greenwich", "gmt0", "etc/gmt+2", "eTc/GmT-2"])(
+    "rejects the fixed-offset timezone identifier %s even on an irrelevant denial", (timezone) => {
+      expect(() => core.evaluate({ action: "unknown.action", at: 0, snapshot: { knownActions: [], facts: [{ permission: "other.read", effect: "deny", schedules: [{ timezone, weeks: [] }] }] } })).toThrow(core.AuthorizationFault);
+    },
+  );
+
+  it.each(["UTC", "Etc/UTC", "UCT", "Universal", "Zulu", "Etc/UCT", "Etc/Universal", "Etc/Zulu"])(
+    "evaluates named UTC timezone %s at active and inactive boundaries for grants and denials",
+    (timezone) => {
+      const evaluateSchedule = (zone: string, effect: "grant" | "deny", at: number) => {
+        const facts: core.EffectiveFact[] = [{
+          permission: "files.read", effect,
+          schedules: [{ timezone: zone, dates: [{ date: "1970-01-01", times: [{ start: "00:00", end: "01:00" }] }] }],
+        }];
+        if (effect === "deny") facts.push({ permission: "files.read", effect: "grant" });
+        return core.evaluate({ action: "files.read", at, snapshot: { knownActions: ["files.read"], facts } });
+      };
+      let runtimeSupportsAlias = true;
+      try { new Intl.DateTimeFormat("en-US", { timeZone: timezone }); }
+      catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        runtimeSupportsAlias = false;
+      }
+      if (!runtimeSupportsAlias) {
+        for (const effect of ["grant", "deny"] as const) {
+          for (const at of [0, 3_600_000]) {
+            expect(() => evaluateSchedule(timezone, effect, at)).toThrow(core.AuthorizationFault);
+          }
+        }
+        return;
+      }
+      for (const [effect, at, expected] of [
+        ["grant", 0, { outcome: "allow", code: "granted", recognition: "known" }],
+        ["grant", 3_600_000, { outcome: "deny", code: "no-applicable-grant" }],
+        ["deny", 0, { outcome: "deny", code: "explicit-deny" }],
+        ["deny", 3_600_000, { outcome: "allow", code: "granted", recognition: "known" }],
+      ] as const) {
+        const aliasResult = evaluateSchedule(timezone, effect, at);
+        const utcResult = evaluateSchedule("UTC", effect, at);
+        expect(aliasResult).toEqual(expected);
+        expect(aliasResult).toEqual(utcResult);
+      }
+    },
+  );
+
+  it("preserves the gallery UTC weekday boundaries at millisecond precision", () => {
+    const fact: core.EffectiveFact = { permission: "cars.delete", effect: "grant", schedules: [{ timezone: "UTC",
+      weeks: (["monday", "tuesday", "wednesday", "thursday", "friday"] as const).map((day) => ({
+        day, times: [{ start: "09:00", end: "17:00" }],
+      })),
+    }] };
+    for (const [instant, expected] of [
+      ["2024-01-01T08:59:59.999Z", "deny"], ["2024-01-01T09:00:00.000Z", "allow"],
+      ["2024-01-01T16:59:59.999Z", "allow"], ["2024-01-01T17:00:00.000Z", "deny"],
+      ["2024-01-06T12:00:00.000Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "cars.delete", at: Date.parse(instant),
+      snapshot: { knownActions: ["cars.delete"], facts: [fact] },
+    }).outcome).toBe(expected);
+  });
+
+  it("anchors overnight dates to adjacent local dates across short and long DST days", () => {
+    for (const [date, start, end, instant, expected] of [
+      ["2024-03-10", "22:00", "02:00", "2024-03-11T04:30:00Z", "allow"],
+      ["2024-03-09", "22:00", "02:00", "2024-03-11T04:30:00Z", "deny"],
+      ["2024-11-02", "23:50", "23:45", "2024-11-04T04:30:00Z", "allow"],
+      ["2024-11-03", "23:50", "23:45", "2024-11-04T04:30:00Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{
+        timezone: "America/New_York", dates: [{ date, times: [{ start, end }] }],
+      }] }],
+    } }).outcome).toBe(expected);
+  });
+
+  it("never aliases a BCE instant to a CE date-specific grant", () => {
+    expect(core.evaluate({ action: "files.read", at: Date.parse("0000-01-01T12:00:00Z"), snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC",
+        dates: [{ date: "0001-01-01", times: [{ start: "09:00", end: "17:00" }] }],
+      }] }],
+    } }).code).toBe("no-applicable-grant");
+  });
+
+  it("keeps CE denials and overnight windows distinct from BCE calendar dates", () => {
+    const denial: core.EffectiveFact = { permission: "files.read", effect: "deny", schedules: [{ timezone: "UTC", dates: [{ date: "0001-01-01", times: [{ start: "00:00", end: "01:00" }] }] }] };
+    const snapshot: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant" }, denial] };
+    expect(core.evaluate({ action: "files.read", at: Date.parse("0000-01-01T00:30:00Z"), snapshot }).code).toBe("granted");
+    expect(core.evaluate({ action: "files.read", at: Date.parse("0001-01-01T00:30:00Z"), snapshot }).code).toBe("explicit-deny");
+    const overnight: core.AuthorizationSnapshot = { knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", dates: [{ date: "0001-01-01", times: [{ start: "22:00", end: "02:00" }] }] }] }] };
+    for (const [instant, outcome] of [
+      ["0000-12-31T23:00:00Z", "deny"], ["0001-01-01T01:00:00Z", "deny"],
+      ["0001-01-01T22:00:00Z", "allow"], ["0001-01-02T01:00:00Z", "allow"],
+      ["0001-01-02T02:00:00Z", "deny"],
+    ] as const) expect(core.evaluate({ action: "files.read", at: Date.parse(instant), snapshot: overnight }).outcome).toBe(outcome);
+  });
+
+  it.each([Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER])("rejects scheduled instant %s outside Date range as AuthorizationFault", (at) => {
+    expect(() => core.evaluate({ action: "files.read", at, snapshot: {
+      knownActions: ["files.read"], facts: [{ permission: "files.read", effect: "grant", schedules: [{ timezone: "UTC", weeks: [] }] }],
+    } })).toThrow(core.AuthorizationFault);
+  });
+
   it("lets an active matching denial override an exact grant", () => {
     const result = core.evaluate({
       action: "files.read",
