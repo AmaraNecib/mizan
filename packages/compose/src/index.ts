@@ -161,10 +161,13 @@ function cloneData(value: unknown, label: string, depth = 0, ancestors = new Wea
   if (value === null || ["string", "number", "boolean", "undefined"].includes(typeof value)) return value;
   fault(`${label} must contain only data values`);
 }
-function stringArray(value: unknown, label: string, unique = true): string[] {
+function stringArray(value: unknown, label: string, unique = true, bounded = false): string[] {
   if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) fault(`${label} must be a plain array`);
-  const copy: string[] = [];
   const length = value.length;
+  if (bounded && length > 10_000) fault(`${label} exceeds the maximum array length`);
+  let remainingText = 1_000_000;
+  const copy: string[] = [];
+  const seen = new Set<string>();
   for (const key of Reflect.ownKeys(value)) {
     if (key !== "length" && (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/u.test(key) || Number(key) >= length)) {
       fault(`${label} contains unsupported array properties`);
@@ -175,7 +178,12 @@ function stringArray(value: unknown, label: string, unique = true): string[] {
     if (!descriptor || !("value" in descriptor)) fault(`${label} cannot contain holes or accessors`);
     const entry: unknown = descriptor.value;
     if (typeof entry !== "string" || entry.length === 0) fault(`${label} must contain non-empty strings`);
-    if (unique && copy.includes(entry)) fault(`${label} cannot contain duplicates`);
+    if (bounded) {
+      if (entry.length > remainingText) fault(`${label} exceeds the maximum text budget`);
+      remainingText -= entry.length;
+    }
+    if (unique && seen.has(entry)) fault(`${label} cannot contain duplicates`);
+    if (unique) seen.add(entry);
     copy.push(entry);
   }
   return copy;
@@ -222,8 +230,11 @@ function copyAcceptance(value: unknown): Acceptance {
   }
   return { consistency: record.consistency, maxAgeMs: record.maxAgeMs };
 }
-function copyDomains(value: unknown, label: string): string[] {
-  return stringArray(value, label);
+function copyDomains(value: unknown, label: string, expectedLength?: number): string[] {
+  if (Array.isArray(value) && expectedLength !== undefined && value.length !== expectedLength) {
+    fault("Source recognitionDomains do not match their declaration");
+  }
+  return stringArray(value, label, true, true);
 }
 function dataStatus(value: unknown, label: string): unknown {
   if (!isRecord(value)) fault(`${label} returned a malformed result`);
@@ -276,9 +287,8 @@ function validateCompleteOutcome(value: unknown, source: Pick<Source<unknown>, "
   const base = copyBinding({ subjectId: bindingRecord.subjectId, partitionKey: bindingRecord.partitionKey, scope: bindingRecord.scope }, "Source binding");
   if (typeof bindingRecord.action !== "string" || bindingRecord.action.length === 0) fault("Source binding requires an action");
   if (record.contribution !== source.contribution) fault("Source contribution does not match its declaration");
-  const domains = copyDomains(record.recognitionDomains, "Source recognitionDomains");
-  const expected = [...source.recognitionDomains];
-  if (domains.length !== expected.length || domains.some((domain, index) => domain !== expected[index])) {
+  const domains = copyDomains(record.recognitionDomains, "Source recognitionDomains", source.recognitionDomains.length);
+  if (domains.some((domain, index) => domain !== source.recognitionDomains[index])) {
     fault("Source recognitionDomains do not match their declaration");
   }
   const snapshot = recordCopy(record.snapshot, ["facts", "knownActions"], "Source snapshot");
@@ -410,10 +420,10 @@ export function createAuthorizer<
     const sourcePlan = recordCopy(definition.source, ["contributions", "recognitionDomains", "resolve"], "Evidence plan");
     if (typeof sourcePlan.resolve !== "function") fault("Action source must be an evidence plan");
     const resolvePlan = sourcePlan.resolve as EvidencePlan<Context>["resolve"];
-    const requirements = stringArray(definition.recognitionRequirements, "recognitionRequirements");
+    const requirements = copyDomains(definition.recognitionRequirements, "recognitionRequirements");
     const contributions = stringArray(sourcePlan.contributions, "Evidence plan contributions");
     if (contributions.length !== 1) fault("Issue 60 supports exactly one evidence contribution");
-    const planDomains = stringArray(sourcePlan.recognitionDomains, "Evidence plan recognitionDomains");
+    const planDomains = copyDomains(sourcePlan.recognitionDomains, "Evidence plan recognitionDomains");
     const planReceiver = Object.freeze({
       contributions: Object.freeze([...contributions]),
       recognitionDomains: Object.freeze([...planDomains]),
@@ -424,7 +434,8 @@ export function createAuthorizer<
       recognitionDomains: [...planDomains],
       resolve: (query) => resolvePlan.call(planReceiver, query),
     };
-    if (requirements.some((domain) => !planDomains.includes(domain))) fault("Evidence plan does not cover required recognition domains");
+    const coveredDomains = new Set(planDomains);
+    if (requirements.some((domain) => !coveredDomains.has(domain))) fault("Evidence plan does not cover required recognition domains");
     if (definition.policy !== undefined) {
       const actionPolicy = recordCopy(definition.policy, ["risk", "unknownPermissions"], "Action policy");
       if (actionPolicy.risk !== undefined && (typeof actionPolicy.risk !== "string" || !levels.includes(actionPolicy.risk))) {
