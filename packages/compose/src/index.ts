@@ -83,6 +83,8 @@ type Authorizer<Context, Actions extends Record<string, unknown>> = {
 };
 type RiskRegistration<Levels extends readonly string[]> = { readonly riskLevels: Levels } & Omit<AuthorizationPolicy<Levels[number]>, "riskLevels">;
 type ActionConfig<Context, Risk extends string> = ActionDefinition<Context, Risk>;
+type BoundContext<Bind extends (context: any) => ContextBinding> =
+  Parameters<Bind>[0] extends undefined ? unknown : Parameters<Bind>[0];
 
 function fault(message: string): never {
   throw new AuthorizationFault(message);
@@ -103,11 +105,19 @@ function recordCopy(value: unknown, allowed: readonly string[], label: string): 
   if (!isRecord(value)) fault(`${label} must be a plain data object`);
   assertKeys(value, allowed, label);
   const result: Record<string, unknown> = Object.create(null);
-  for (const key of Object.keys(value)) result[key] = value[key];
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") fault(`${label} contains an unsupported field`);
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor)) fault(`${label} cannot contain accessors`);
+    result[key] = descriptor.value;
+  }
   return result;
 }
-function cloneData(value: unknown, label: string): unknown {
+function cloneData(value: unknown, label: string, depth = 0, ancestors = new WeakSet<object>()): unknown {
+  if (depth > 64) fault(`${label} exceeds the maximum data depth`);
   if (Array.isArray(value)) {
+    if (ancestors.has(value)) fault(`${label} cannot contain circular data`);
+    ancestors.add(value);
     if (Object.getPrototypeOf(value) !== Array.prototype) fault(`${label} must use a plain array`);
     const length = value.length;
     const copy: unknown[] = [];
@@ -116,20 +126,27 @@ function cloneData(value: unknown, label: string): unknown {
         fault(`${label} contains unsupported array properties`);
       }
     }
-    for (let index = 0; index < length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (!descriptor || !("value" in descriptor)) fault(`${label} cannot contain holes or accessors`);
-      copy.push(cloneData(descriptor.value, label));
+    try {
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !("value" in descriptor)) fault(`${label} cannot contain holes or accessors`);
+        copy.push(cloneData(descriptor.value, label, depth + 1, ancestors));
+      }
+      return copy;
+    } finally {
+      ancestors.delete(value);
     }
-    return copy;
   }
   if (isRecord(value)) {
+    if (ancestors.has(value)) fault(`${label} cannot contain circular data`);
+    ancestors.add(value);
     const copy: Record<string, unknown> = Object.create(null);
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (typeof key !== "string" || !descriptor || !("value" in descriptor)) fault(`${label} must contain plain data properties`);
-      copy[key] = cloneData(descriptor.value, label);
+      copy[key] = cloneData(descriptor.value, label, depth + 1, ancestors);
     }
+    ancestors.delete(value);
     return copy;
   }
   if (value === null || ["string", "number", "boolean", "undefined"].includes(typeof value)) return value;
@@ -199,23 +216,30 @@ function copyAcceptance(value: unknown): Acceptance {
 function copyDomains(value: unknown, label: string): string[] {
   return stringArray(value, label);
 }
+function dataStatus(value: unknown, label: string): unknown {
+  if (!isRecord(value)) fault(`${label} returned a malformed result`);
+  const descriptor = Object.getOwnPropertyDescriptor(value, "status");
+  if (!descriptor || !("value" in descriptor)) fault(`${label} status must be an own data property`);
+  return descriptor.value;
+}
 function validatePlanResolution(value: unknown, plan: EvidencePlan<unknown>, query: SourceQuery<unknown>): PlanResolution {
+  const status = dataStatus(value, "Evidence plan");
   if (!isRecord(value)) fault("Evidence plan returned a malformed result");
-  if (value.status === "miss") {
+  if (status === "miss") {
     assertKeys(value, ["status"], "Miss result");
     return { status: "miss" };
   }
-  if (value.status === "unavailable") {
+  if (status === "unavailable") {
     const result = recordCopy(value, ["status", "code"], "Unavailable result");
     if (typeof result.code !== "string" || result.code.length === 0) fault("Unavailable result requires a code");
     return { status: "unavailable", code: result.code };
   }
-  if (value.status === "unacceptable") {
+  if (status === "unacceptable") {
     const result = recordCopy(value, ["status", "code"], "Unacceptable result");
     if (result.code !== "assurance-unmet") fault("Unacceptable result has an unsupported code");
     return { status: "unacceptable", code: "assurance-unmet" };
   }
-  if (value.status !== "complete") fault("Evidence plan returned an unknown status");
+  if (status !== "complete") fault("Evidence plan returned an unknown status");
   const result = recordCopy(value, ["status", "selected"], "Complete plan result");
   const selected = cloneData(result.selected, "Selected evidence receipts");
   if (!Array.isArray(selected) || selected.length !== 1) fault("One-source plan must return exactly one selected receipt");
@@ -244,7 +268,9 @@ function validateCompleteOutcome(value: unknown, source: Pick<Source<unknown>, "
     fault("Source recognitionDomains do not match their declaration");
   }
   const snapshot = recordCopy(record.snapshot, ["facts", "knownActions"], "Source snapshot");
-  if (!Array.isArray(snapshot.facts) || !Array.isArray(snapshot.knownActions)) fault("Source snapshot needs facts and knownActions arrays");
+  const facts = cloneData(snapshot.facts, "Source facts");
+  const knownActions = cloneData(snapshot.knownActions, "Source knownActions");
+  if (!Array.isArray(facts) || !Array.isArray(knownActions)) fault("Source snapshot needs facts and knownActions arrays");
   const assurance = recordCopy(record.assurance, ["consistency", "dataAsOf", "revision"], "Source assurance");
   if ((assurance.consistency !== "snapshot" && assurance.consistency !== "current")
     || typeof assurance.dataAsOf !== "number" || !Number.isSafeInteger(assurance.dataAsOf)
@@ -256,7 +282,7 @@ function validateCompleteOutcome(value: unknown, source: Pick<Source<unknown>, "
     binding: { ...base, action: bindingRecord.action },
     contribution: record.contribution,
     recognitionDomains: domains,
-    snapshot: { facts: snapshot.facts as AuthorizationSnapshot["facts"], knownActions: snapshot.knownActions as string[] },
+    snapshot: { facts: facts as AuthorizationSnapshot["facts"], knownActions: knownActions as string[] },
     assurance: {
       consistency: assurance.consistency,
       dataAsOf: assurance.dataAsOf,
@@ -304,44 +330,46 @@ export function accept<Context>(source: Source<Context>, requirements: Acceptanc
   const resolver = config.resolve as Source<Context>["resolve"];
   const domains = copyDomains(config.recognitionDomains, "Source recognitionDomains");
   const acceptance = copyAcceptance(requirements);
+  const receiver = Object.freeze({ contribution, recognitionDomains: Object.freeze([...domains]), resolve: resolver });
   return {
-    contributions: [contribution],
-    recognitionDomains: domains,
+    contributions: Object.freeze([contribution]),
+    recognitionDomains: Object.freeze([...domains]),
     resolve: async (query) => {
-      const outcome: unknown = await resolver(query);
+      const outcome: unknown = await resolver.call(receiver, query);
       if (!isRecord(outcome)) fault("Source returned a malformed outcome");
-      if (outcome.status === "miss") {
+      const status = dataStatus(outcome, "Source outcome");
+      if (status === "miss") {
         assertKeys(outcome, ["status"], "Miss outcome");
         return { status: "miss" };
       }
-      if (outcome.status === "unavailable") {
+      if (status === "unavailable") {
         const result = recordCopy(outcome, ["status", "code"], "Unavailable outcome");
         if (typeof result.code !== "string" || result.code.length === 0) fault("Unavailable outcome requires a code");
         return { status: "unavailable", code: result.code };
       }
-      if (outcome.status !== "complete") fault("Source returned an unknown outcome status");
+      if (status !== "complete") fault("Source returned an unknown outcome status");
       const evidence = validateCompleteOutcome(outcome, { contribution, recognitionDomains: domains });
       if (!sameBinding(query, evidence.binding)) fault("Source returned evidence for a different binding");
-      return { status: "complete", selected: [{ evidence, requirements: acceptance }] };
+      return { status: "complete", selected: [{ evidence, requirements: copyAcceptance(acceptance) }] };
     },
   };
 }
 
 export function createAuthorizer<
-  Context,
   const Levels extends readonly string[],
-  const Actions extends Record<string, ActionConfig<Context, Levels[number]>>,
-  const Routes extends Record<string, ActionConfig<Context, Levels[number]>> = {},
+  const Bind extends (context: any) => ContextBinding,
+  const Actions extends Record<string, ActionConfig<BoundContext<Bind>, Levels[number]>>,
+  const Routes extends Record<string, ActionConfig<BoundContext<Bind>, Levels[number]>> = {},
 >(config: {
   readonly policy: RiskRegistration<Levels>;
-  readonly bindContext: (context: Context) => ContextBinding;
+  readonly bindContext: Bind;
   readonly actions: Actions;
   readonly routes?: Routes;
   readonly clock?: () => number;
-}): Authorizer<Context, Actions> {
+}): Authorizer<BoundContext<Bind>, Actions> {
   const root = recordCopy(config, ["policy", "bindContext", "actions", "routes", "clock"], "Authorizer configuration");
   if (typeof root.bindContext !== "function") fault("bindContext must be a function");
-  const bindContext = root.bindContext as (context: Context) => ContextBinding;
+  const bindContext = root.bindContext as (context: BoundContext<Bind>) => ContextBinding;
   const policy = root.policy;
   if (!isRecord(policy)) fault("Authorizer policy must be an object");
   const policyRecord = recordCopy(policy, ["riskLevels", "defaults", "risk", "byRisk"], "Authorizer policy");
@@ -368,20 +396,20 @@ export function createAuthorizer<
     return sample;
   };
 
-  const validateDefinition = (key: string, value: unknown, isRoute: boolean): ActionConfig<Context, Levels[number]> => {
+  const validateDefinition = (key: string, value: unknown, isRoute: boolean): ActionConfig<BoundContext<Bind>, Levels[number]> => {
     if (isRoute ? !isRoutePattern(key) : !isConcreteAction(key)) fault("Action or route key is malformed");
     const definition = recordCopy(value, ["source", "recognitionRequirements", "policy"], "Action definition");
     const sourcePlan = recordCopy(definition.source, ["contributions", "recognitionDomains", "resolve"], "Evidence plan");
     if (typeof sourcePlan.resolve !== "function") fault("Action source must be an evidence plan");
-    const resolvePlan = sourcePlan.resolve as EvidencePlan<Context>["resolve"];
+    const resolvePlan = sourcePlan.resolve as EvidencePlan<BoundContext<Bind>>["resolve"];
     const requirements = stringArray(definition.recognitionRequirements, "recognitionRequirements");
     const contributions = stringArray(sourcePlan.contributions, "Evidence plan contributions");
     if (contributions.length !== 1) fault("Issue 60 supports exactly one evidence contribution");
     const planDomains = stringArray(sourcePlan.recognitionDomains, "Evidence plan recognitionDomains");
-    const isolatedPlan: EvidencePlan<Context> = {
+    const isolatedPlan: EvidencePlan<BoundContext<Bind>> = {
       contributions: [...contributions],
       recognitionDomains: [...planDomains],
-      resolve: resolvePlan,
+      resolve: (query) => resolvePlan.call(sourcePlan, query),
     };
     if (requirements.some((domain) => !planDomains.includes(domain))) fault("Evidence plan does not cover required recognition domains");
     if (definition.policy !== undefined) {
@@ -399,11 +427,11 @@ export function createAuthorizer<
       recognitionRequirements: [...requirements],
       ...(definition.policy === undefined ? {} : { policy: cloneData(definition.policy, "Action policy") }),
     };
-    return isolated as unknown as ActionConfig<Context, Levels[number]>;
+    return isolated as unknown as ActionConfig<BoundContext<Bind>, Levels[number]>;
   };
-  const checkedActions = new Map<string, ActionConfig<Context, Levels[number]>>();
+  const checkedActions = new Map<string, ActionConfig<BoundContext<Bind>, Levels[number]>>();
   for (const [key, value] of Object.entries(actions)) checkedActions.set(key, validateDefinition(key, value, false));
-  const checkedRoutes = new Map<string, ActionConfig<Context, Levels[number]>>();
+  const checkedRoutes = new Map<string, ActionConfig<BoundContext<Bind>, Levels[number]>>();
   for (const [key, value] of Object.entries(routes)) checkedRoutes.set(key, validateDefinition(key, value, true));
   const policyProbe = {
     action: "mizan.compose.validation",
@@ -425,7 +453,7 @@ export function createAuthorizer<
   }
 
   return {
-    forContext(context: Context, options = {}) {
+    forContext(context: BoundContext<Bind>, options = {}) {
       const opts = recordCopy(options, ["signal"], "forContext options");
       const signal = opts.signal as CancellationSignal | undefined;
       if (signal !== undefined && (typeof signal !== "object" || signal === null || typeof signal.aborted !== "boolean")) {
@@ -442,7 +470,7 @@ export function createAuthorizer<
         const definition = exact ?? (selectedRoute === undefined ? undefined : checkedRoutes.get(selectedRoute));
         if (!definition) return { outcome: "deny", code: "unrouted-action" } as Decision;
         const now = sampleClock();
-        const query: SourceQuery<Context> = {
+        const query: SourceQuery<BoundContext<Bind>> = {
           ...base,
           action,
           context: boundContext,
@@ -486,5 +514,5 @@ export function createAuthorizer<
         },
       };
     },
-  } as Authorizer<Context, Actions>;
+  } as Authorizer<BoundContext<Bind>, Actions>;
 }

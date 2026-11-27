@@ -83,7 +83,7 @@ describe("@mizan/compose one-source authorizer", () => {
   });
 
   it("supports runtime-only authorizers with a namespace route", async () => {
-    const source: Source<object> = {
+    const source: Source<unknown> = {
       contribution: "permissions",
       recognitionDomains: ["catalog"],
       resolve: async (query) => complete(query.action),
@@ -137,7 +137,7 @@ describe("@mizan/compose one-source authorizer", () => {
   });
 
   it("copies the context binding and rejects unsupported deferred behavior", async () => {
-    const source: Source<{ userId: string; tenantId: string }> = {
+    const source: Source<unknown> = {
       contribution: "permissions", recognitionDomains: ["catalog"],
       resolve: async (query) => complete(query.action),
     };
@@ -168,7 +168,7 @@ describe("@mizan/compose one-source authorizer", () => {
     const routePolicy: { unknownPermissions: "deny" | "allow-if-wildcard-granted" } = {
       unknownPermissions: "allow-if-wildcard-granted",
     };
-    const source: Source<object> = {
+    const source: Source<unknown> = {
       contribution: "permissions",
       recognitionDomains: ["catalog"],
       resolve: async (query) => ({
@@ -191,6 +191,30 @@ describe("@mizan/compose one-source authorizer", () => {
     routePolicy.unknownPermissions = "deny";
     await expect(authorizer.forContext({}).decideDynamic({ action: "runtime.read" }))
       .resolves.toMatchObject({ outcome: "allow", recognition: "wildcard-exception" });
+  });
+
+  it("preserves non-enumerable risk policy fields when copying checked policy", async () => {
+    const source: Source<unknown> = {
+      contribution: "permissions", recognitionDomains: ["catalog"],
+      resolve: async (query) => ({ ...complete(query.action), snapshot: {
+        knownActions: [], facts: [{ permission: "*", effect: "grant" }],
+      } }),
+    };
+    const hiddenPolicy = {
+      riskLevels: ["low"],
+      defaults: { unknownPermissions: "allow-if-wildcard-granted" },
+      byRisk: { low: { unknownPermissions: "deny" } },
+    };
+    Object.defineProperty(hiddenPolicy, "risk", {
+      value: { "runtime.*": "low" }, enumerable: false,
+    });
+    const authorizer = createAuthorizer({
+      policy: hiddenPolicy as never, bindContext: () => binding, actions: {},
+      routes: { "runtime.*": { source: accept(source, requirements), recognitionRequirements: ["catalog"] } },
+      clock: () => 1_000,
+    });
+    await expect(authorizer.forContext({}).decideDynamic({ action: "runtime.disabled" }))
+      .resolves.toEqual({ outcome: "deny", code: "unknown-action" });
   });
 
   it("accepts native abort signals and stops before acquisition when already aborted", async () => {
@@ -357,7 +381,7 @@ describe("@mizan/compose one-source authorizer", () => {
     const handle = authorizer.forContext({ userId: "user-1", tenantId: "tenant-a" });
     expect(() => handle.decideDynamic({ action: "bad action" })).toThrow(AuthorizationFault);
 
-    const source: Source<object> = {
+    const source: Source<unknown> = {
       contribution: "permissions", recognitionDomains: ["catalog"],
       resolve: async (query) => complete(query.action),
     };
@@ -366,6 +390,106 @@ describe("@mizan/compose one-source authorizer", () => {
       bindContext: () => binding,
       actions: { "files.read": { source: accept(source, requirements), recognitionRequirements: ["missing"] } },
     })).toThrow(AuthorizationFault);
+  });
+
+  it("preserves source method receivers while isolating its declared configuration", async () => {
+    const source = {
+      contribution: "permissions",
+      recognitionDomains: ["catalog"],
+      resolve(query: Parameters<Source<unknown>["resolve"]>[0]) {
+        return {
+          ...complete(query.action),
+          contribution: this.contribution,
+          recognitionDomains: this.recognitionDomains,
+        };
+      },
+    };
+    const plan = accept(source, requirements);
+    source.contribution = "changed";
+    const authorizer = createAuthorizer({
+      policy,
+      bindContext: () => binding,
+      actions: { "files.read": { source: plan, recognitionRequirements: ["catalog"] } },
+      clock: () => 1_000,
+    });
+    await expect(authorizer.forContext({}).decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+  });
+
+  it("rejects source and plan status accessors with AuthorizationFault", async () => {
+    const sourceReply = Object.defineProperty({}, "status", { get() { throw new Error("getter ran"); } });
+    const sourceAuthorizer = makeAuthorizer(async () => sourceReply as never);
+    await expect(sourceAuthorizer.forContext({ userId: "user-1", tenantId: "tenant-a" }).decide("files.read"))
+      .rejects.toBeInstanceOf(AuthorizationFault);
+
+    const source = { contribution: "permissions", recognitionDomains: ["catalog"], resolve: async () => complete() };
+    const plan = accept(source, requirements);
+    const planReply = Object.defineProperty({}, "status", { get() { throw new Error("getter ran"); } });
+    const authorizer = createAuthorizer({
+      policy, bindContext: () => binding,
+      actions: { "files.read": { source: { ...plan, resolve: async () => planReply as never }, recognitionRequirements: ["catalog"] } },
+      clock: () => 1_000,
+    });
+    await expect(authorizer.forContext({}).decide("files.read")).rejects.toBeInstanceOf(AuthorizationFault);
+  });
+
+  it("isolates receipt requirements and output metadata across resolutions", async () => {
+    const source = { contribution: "permissions", recognitionDomains: ["catalog"], resolve: async (query: Parameters<Source<unknown>["resolve"]>[0]) => complete(query.action) };
+    const plan = accept(source, requirements);
+    let calls = 0;
+    const wrappedPlan = {
+      ...plan,
+      async resolve(query: Parameters<typeof plan.resolve>[0]) {
+        const result = await plan.resolve(query);
+        calls += 1;
+        if (this.contributions[0] === "permissions" && calls === 1 && result.status === "complete") {
+          (result.selected[0]!.requirements as { maxAgeMs: number }).maxAgeMs = 0;
+        }
+        return result;
+      },
+    };
+    let now = 1_000;
+    const authorizer = createAuthorizer({ policy, bindContext: () => binding,
+      actions: { "files.read": { source: wrappedPlan, recognitionRequirements: ["catalog"] } }, clock: () => now });
+    const handle = authorizer.forContext({});
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+    now += 1;
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow" });
+  });
+
+  it("turns circular and deeply nested source facts into typed faults", async () => {
+    const circular: Record<string, unknown> = { permission: "files.read", effect: "grant" };
+    circular.scope = circular;
+    const circularAuthorizer = makeAuthorizer(async (query) => ({
+      ...complete(query.action), snapshot: { knownActions: [query.action], facts: [circular] },
+    } as never));
+    await expect(circularAuthorizer.forContext({ userId: "user-1", tenantId: "tenant-a" }).decide("files.read"))
+      .rejects.toBeInstanceOf(AuthorizationFault);
+
+    let nested: Record<string, unknown> = {};
+    const deepFact: Record<string, unknown> = { permission: "files.read", effect: "grant", scope: nested };
+    for (let i = 0; i < 200; i += 1) nested = { child: nested };
+    deepFact.scope = nested;
+    const deepAuthorizer = makeAuthorizer(async (query) => ({
+      ...complete(query.action), snapshot: { knownActions: [query.action], facts: [deepFact] },
+    } as never));
+    await expect(deepAuthorizer.forContext({ userId: "user-1", tenantId: "tenant-a" }).decide("files.read"))
+      .rejects.toBeInstanceOf(AuthorizationFault);
+  });
+
+  it("preserves static recognition, denies unknown routed keys, and honors explicit deny", async () => {
+    const source: Source<unknown> = { contribution: "permissions", recognitionDomains: ["catalog"], resolve: async (query) => ({
+      ...complete(query.action), snapshot: { knownActions: [], facts: [
+        { permission: "*", effect: "grant" }, ...(query.action === "files.denied" ? [{ permission: query.action, effect: "deny" as const }] : []),
+      ] },
+    }) };
+    const definition = { source: accept(source, requirements), recognitionRequirements: ["catalog"],
+      policy: { unknownPermissions: "deny" as const } };
+    const authorizer = createAuthorizer({ policy, bindContext: () => binding,
+      actions: { "files.read": definition, "files.denied": definition }, routes: { "runtime.*": definition }, clock: () => 1_000 });
+    const handle = authorizer.forContext({});
+    await expect(handle.decide("files.read")).resolves.toMatchObject({ outcome: "allow", recognition: "known" });
+    await expect(handle.decide("files.denied")).resolves.toMatchObject({ outcome: "deny", code: "explicit-deny" });
+    await expect(handle.decideDynamic({ action: "runtime.read" })).resolves.toEqual({ outcome: "deny", code: "unknown-action" });
   });
 
   it("checks evidence age at decision time and recognizes runtime definitions independently of grants", async () => {

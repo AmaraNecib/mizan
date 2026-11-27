@@ -2,7 +2,7 @@ import { expect, it } from "bun:test";
 import { accept, AuthorizationFault, createAuthorizer, type SourceOutcome, type SourceQuery } from "@mizan/compose";
 
 const bound = { subjectId: "u", partitionKey: "p", scope: { tenant: "a" } };
-function complete(query: SourceQuery<object>, dataAsOf = 100): SourceOutcome {
+function complete(query: SourceQuery<unknown>, dataAsOf = 100): SourceOutcome {
   return {
     status: "complete", binding: { ...bound, action: query.action }, contribution: "permissions",
     recognitionDomains: ["catalog"], snapshot: {
@@ -10,7 +10,7 @@ function complete(query: SourceQuery<object>, dataAsOf = 100): SourceOutcome {
     }, assurance: { consistency: "current", dataAsOf },
   };
 }
-function authorizer(resolve: (query: SourceQuery<object>) => SourceOutcome | Promise<SourceOutcome>, clock = () => 110, maxAgeMs = 1000) {
+function authorizer(resolve: (query: SourceQuery<unknown>) => SourceOutcome | Promise<SourceOutcome>, clock = () => 110, maxAgeMs = 1000) {
   return createAuthorizer({
     policy: { riskLevels: ["low"] }, bindContext: () => bound,
     actions: { "files.read": { source: accept({ contribution: "permissions", recognitionDomains: ["catalog"], resolve },
