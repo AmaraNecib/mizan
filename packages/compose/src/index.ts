@@ -188,14 +188,23 @@ function stringArray(value: unknown, label: string, unique = true, bounded = fal
   }
   return copy;
 }
-function copyScope(value: unknown, label: string): Scope {
+function copyScope(value: unknown, label: string, expected?: Scope): Scope {
   if (!isRecord(value)) fault(`${label} must be a plain object`);
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 10_000) fault(`${label} exceeds the dimension limit`);
+  if (expected && keys.length !== Object.keys(expected).length) fault("Source returned evidence for a different binding");
+  let remainingText = 1_000_000;
   const copy: Record<string, string> = Object.create(null);
-  for (const key of Reflect.ownKeys(value)) {
+  for (const key of keys) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (typeof key !== "string" || !descriptor || !("value" in descriptor)
       || key.length === 0 || typeof descriptor.value !== "string" || descriptor.value.length === 0) {
       fault(`${label} must contain non-empty string dimensions`);
+    }
+    remainingText -= key.length + descriptor.value.length;
+    if (remainingText < 0) fault(`${label} exceeds the text limit`);
+    if (expected && (!Object.prototype.hasOwnProperty.call(expected, key) || expected[key] !== descriptor.value)) {
+      fault("Source returned evidence for a different binding");
     }
     copy[key] = descriptor.value;
   }
@@ -274,17 +283,20 @@ function validatePlanResolution(value: unknown, plan: EvidencePlan<unknown>, que
   const checked = validateCompleteOutcome(receipt.evidence, {
     contribution: plan.contributions[0]!,
     recognitionDomains: plan.recognitionDomains,
-  });
+  }, query);
   if (!sameBinding(query, checked.binding)) fault("Evidence plan returned evidence for a different binding");
   const requirements = copyAcceptance(receipt.requirements);
   if (!plan.contributions.includes(checked.contribution)) fault("Evidence plan returned an undeclared contribution");
   return { status: "complete", selected: [{ evidence: checked, requirements }] };
 }
-function validateCompleteOutcome(value: unknown, source: Pick<Source<unknown>, "contribution" | "recognitionDomains">): Extract<SourceOutcome, { status: "complete" }> {
+function validateCompleteOutcome(value: unknown, source: Pick<Source<unknown>, "contribution" | "recognitionDomains">, expected: Binding): Extract<SourceOutcome, { status: "complete" }> {
   const record = recordCopy(value, ["status", "binding", "contribution", "recognitionDomains", "snapshot", "assurance"], "Source outcome");
   if (record.status !== "complete") fault("Source outcome is not complete");
   const bindingRecord = recordCopy(record.binding, ["subjectId", "partitionKey", "action", "scope"], "Source binding");
-  const base = copyBinding({ subjectId: bindingRecord.subjectId, partitionKey: bindingRecord.partitionKey, scope: bindingRecord.scope }, "Source binding");
+  if (bindingRecord.subjectId !== expected.subjectId || bindingRecord.partitionKey !== expected.partitionKey || bindingRecord.action !== expected.action) {
+    fault("Source returned evidence for a different binding");
+  }
+  const base = { subjectId: expected.subjectId, partitionKey: expected.partitionKey, scope: copyScope(bindingRecord.scope, "Source binding.scope", expected.scope) };
   if (typeof bindingRecord.action !== "string" || bindingRecord.action.length === 0) fault("Source binding requires an action");
   if (record.contribution !== source.contribution) fault("Source contribution does not match its declaration");
   const domains = copyDomains(record.recognitionDomains, "Source recognitionDomains", source.recognitionDomains.length);
@@ -366,7 +378,7 @@ export function accept<Context>(source: Source<Context>, requirements: Acceptanc
         return { status: "unavailable", code: result.code };
       }
       if (status !== "complete") fault("Source returned an unknown outcome status");
-      const evidence = validateCompleteOutcome(outcome, { contribution, recognitionDomains: domains });
+      const evidence = validateCompleteOutcome(outcome, { contribution, recognitionDomains: domains }, query);
       if (!sameBinding(query, evidence.binding)) fault("Source returned evidence for a different binding");
       return { status: "complete", selected: [{ evidence, requirements: copyAcceptance(acceptance) }] };
     },

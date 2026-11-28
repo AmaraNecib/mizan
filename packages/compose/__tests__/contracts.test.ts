@@ -18,6 +18,16 @@ function authorizer(resolve: (query: SourceQuery<unknown>) => SourceOutcome | Pr
   });
 }
 
+it("counts binding scope keys and values in UTF-16 units before retaining a context", () => {
+  const bind = (dimension: string) => createAuthorizer({
+    policy: { riskLevels: ["low"] }, bindContext: () => ({ ...bound, scope: { x: dimension } }),
+    actions: { read: { source: accept({ contribution: "p", recognitionDomains: [], resolve: () => ({ status: "miss" }) }, { consistency: "current", maxAgeMs: 0 }), recognitionRequirements: [] } },
+  }).forContext({});
+  const prefix = "😀".repeat(499_999);
+  bind(prefix + "a");
+  expect(() => bind(prefix + "aa")).toThrow(AuthorizationFault);
+});
+
 it("accepts evidence observed during acquisition rather than measuring age at request start", async () => {
   let now = 100;
   const handle = authorizer(async query => { now = 110; return complete(query, 105); }, () => now).forContext({});

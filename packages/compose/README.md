@@ -63,6 +63,10 @@ Repeated occurrences count separately, even when they reference the same object 
 
 An `accept` plan copies source snapshot data, and the authorizer copies the selected evidence again because structural plan wrappers can change it. The authorizer does not deep-copy the entire receipt tree or deep-copy the validated snapshot a third time before core evaluation. Core still performs its own full input validation and normalization. Complete-empty evidence, binding checks and retained acceptance requirements are unchanged.
 
+## Binding scopes
+
+Context and returned scopes allow up to 10,000 own dimensions and 1,000,000 UTF-16 units across names and values. An over-limit scope faults as a whole. Returned subject, partition and action must match before the scope is copied; dimension order does not matter. JavaScript allocates the own-key list before its size can be checked.
+
 ## Recognition-domain copy limits
 
 Source and structural-plan `recognitionDomains`, action/route `recognitionRequirements`, and returned evidence domains each have independent limits of 10,000 array slots and 1,000,000 combined UTF-16 code units. A single domain cannot exceed that text budget. Limits are checked before copying the affected entries. Duplicate detection and required-domain coverage use sets. Empty arrays remain valid; domains must otherwise be unique, non-empty strings in plain arrays without holes, accessors or extra properties.
