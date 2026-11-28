@@ -26,6 +26,22 @@
         "typescript": "^5.7.3",
       },
     },
+    "packages/compose": {
+      "name": "@mizan/compose",
+      "version": "0.1.0",
+      "dependencies": {
+        "@mizan/core": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.3",
+      },
+      "peerDependencies": {
+        "typescript": ">=5.4",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
     "packages/core": {
       "name": "@mizan/core",
       "version": "0.1.0",
@@ -60,6 +76,8 @@
     "husky",
   ],
   "packages": {
+    "@mizan/compose": ["@mizan/compose@workspace:packages/compose"],
+
     "@mizan/core": ["@mizan/core@workspace:packages/core"],
 
     "@mizan/example-direct-evaluation": ["@mizan/example-direct-evaluation@workspace:examples/direct-evaluation"],

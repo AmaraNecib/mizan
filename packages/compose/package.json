@@ -1,0 +1,38 @@
+{
+  "name": "@mizan/compose",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "One-source authorization acquisition and composition for Mizan",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc && node __tests__/fixtures/consumer.mjs",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mizan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.4"
+  },
+  "peerDependenciesMeta": {
+    "typescript": { "optional": true }
+  },
+  "engines": { "node": ">=18" },
+  "keywords": ["authorization", "authz", "permissions", "composition"]
+}
